@@ -9,6 +9,7 @@ import {
   listScreenshots,
 } from "../../services/storage.service";
 import { ensureThumbnailFor } from "../../services/thumbnail.service";
+import { formatDuration } from "../../services/video.service";
 import { openScreenshotInEditor } from "../openScreenshot";
 import { ChevronLeftIcon, ImageIcon, TrashIcon } from "./icons";
 
@@ -134,7 +135,7 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
 
   const handleOpen = useCallback(
     async (row: HistoryRow): Promise<void> => {
-      await openScreenshotInEditor(row.entry.id, showToast);
+      await openScreenshotInEditor(row.entry, showToast);
     },
     [showToast],
   );
@@ -263,11 +264,18 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
                   ) : (
                     <ImageIcon size={17} />
                   )}
+                  {row.entry.kind === "video" ? (
+                    <span className="sd-history__play" aria-hidden="true" />
+                  ) : null}
                 </span>
                 <span className="sd-history__info">
                   <span className="sd-history__name">{row.entry.name}</span>
                   <span className="sd-history__meta">
-                    {row.entry.width} × {row.entry.height} · {formatDate(row.entry.createdAt)}
+                    {row.entry.kind === "video"
+                      ? `${formatDuration(row.entry.durationMs ?? 0)} · `
+                      : ""}
+                    {row.entry.width} × {row.entry.height} ·{" "}
+                    {formatDate(row.entry.createdAt)}
                   </span>
                 </span>
               </button>

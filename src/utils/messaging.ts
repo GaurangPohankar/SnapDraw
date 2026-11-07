@@ -9,9 +9,15 @@ import type {
 /** Bundled extension page paths (stable output paths of the Vite build). */
 export const POPUP_PAGE_PATH = "src/popup/popup.html";
 export const EDITOR_PAGE_PATH = "src/editor/editor.html";
+export const RECORDER_PAGE_PATH = "src/recorder/recorder.html";
+export const VIDEO_EDITOR_PAGE_PATH = "src/video/video.html";
 
 /** Query parameter used to hand a screenshot session id to the editor tab. */
 export const SESSION_QUERY_PARAM = "session";
+
+/** Query parameters used to hand a tab-capture stream to the recorder page. */
+export const RECORDING_STREAM_PARAM = "stream";
+export const RECORDING_TAB_PARAM = "tab";
 
 /** Query parameter used to surface an error state in the editor tab. */
 export const ERROR_QUERY_PARAM = "error";
@@ -76,6 +82,50 @@ export function buildEditorErrorUrl(
     url.searchParams.set("message", message);
   }
   return url.toString();
+}
+
+/** Builds the URL of the video editor tab for a stored recording. */
+export function buildVideoEditorUrl(sessionId: string): string {
+  const url = new URL(extensionPageUrl(VIDEO_EDITOR_PAGE_PATH));
+  url.searchParams.set(SESSION_QUERY_PARAM, sessionId);
+  return url.toString();
+}
+
+/**
+ * Builds the recorder page URL.
+ *
+ * `streamId` is the short-lived tab-capture stream id produced by
+ * `chrome.tabCapture.getMediaStreamId()` after a user gesture; the recorder page
+ * consumes it once with `getUserMedia()`. It is scoped to this extension page.
+ */
+export function buildRecorderUrl(streamId: string, tabId?: number): string {
+  const url = new URL(extensionPageUrl(RECORDER_PAGE_PATH));
+  url.searchParams.set(RECORDING_STREAM_PARAM, streamId);
+  if (tabId !== undefined) {
+    url.searchParams.set(RECORDING_TAB_PARAM, String(tabId));
+  }
+  return url.toString();
+}
+
+export interface RecorderParams {
+  streamId: string | null;
+  tabId: number | null;
+}
+
+/** Reads the recorder page parameters. */
+export function readRecorderParams(search: string = window.location.search): RecorderParams {
+  try {
+    const params = new URLSearchParams(search);
+    const streamId = params.get(RECORDING_STREAM_PARAM);
+    const tabIdRaw = params.get(RECORDING_TAB_PARAM);
+    const tabId = tabIdRaw !== null && /^\d+$/.test(tabIdRaw) ? Number(tabIdRaw) : null;
+    return {
+      streamId: streamId && streamId.trim().length > 0 ? streamId.trim() : null,
+      tabId,
+    };
+  } catch {
+    return { streamId: null, tabId: null };
+  }
 }
 
 /** Reads the session id from an editor page URL. */

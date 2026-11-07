@@ -81,8 +81,12 @@ describe("public/manifest.json", () => {
     expect(existsSync(repoFile("src/background/service-worker.ts"))).toBe(true);
   });
 
-  it("requests exactly the activeTab and clipboardWrite permissions", () => {
-    expect(manifest.permissions).toEqual(["activeTab", "clipboardWrite"]);
+  it("requests exactly the minimal capture/recording permissions", () => {
+    expect(manifest.permissions).toEqual([
+      "activeTab",
+      "clipboardWrite",
+      "tabCapture",
+    ]);
     expect([...manifest.permissions].sort()).toEqual(manifest.permissions);
   });
 

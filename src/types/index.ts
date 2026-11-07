@@ -51,7 +51,10 @@ export type CaptureResponse =
       error: SnapDrawErrorPayload;
     };
 
-/** Metadata persisted alongside a captured screenshot. */
+/** What kind of capture a history record holds. */
+export type CaptureKind = "image" | "video";
+
+/** Metadata persisted alongside a captured screenshot or recording. */
 export interface ScreenshotMeta {
   id: string;
   name: string;
@@ -61,6 +64,12 @@ export interface ScreenshotMeta {
   mimeType: string;
   /** Byte size of the stored blob. */
   size: number;
+  /**
+   * Capture type. Older records omit this field and are treated as images.
+   */
+  kind?: CaptureKind;
+  /** Recording length in milliseconds (videos only). */
+  durationMs?: number;
   sourceUrl?: string;
   sourceTitle?: string;
 }

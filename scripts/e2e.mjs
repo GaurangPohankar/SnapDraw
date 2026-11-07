@@ -715,10 +715,12 @@ async function snapshotDownloads() {
   return snapshot;
 }
 
-async function waitForNewDownload(before, label) {
+async function waitForNewDownload(before, label, extension = "png") {
   return waitFor(
     async () => {
-      const files = (await listDownloads()).filter((name) => name.endsWith(".png"));
+      const files = (await listDownloads()).filter((name) =>
+        name.endsWith(`.${extension}`),
+      );
       for (const name of files) {
         const file = path.join(downloadsDir, name);
         let info;
@@ -741,7 +743,7 @@ async function waitForNewDownload(before, label) {
       }
       return null;
     },
-    { label: `PNG download (${label})`, timeoutMs: 25_000 },
+    { label: `${extension.toUpperCase()} download (${label})`, timeoutMs: 30_000 },
   );
 }
 
@@ -912,6 +914,115 @@ function startFixtureServer() {
 let chromeProcess = null;
 let fixtureServer = null;
 
+/**
+ * Page-side script that fabricates a short WebM recording (canvas + MediaRecorder)
+ * and stores it as a video history record. Used to test the video editor without
+ * depending on tab capture support in headless Chrome.
+ */
+const SEED_VIDEO_EXPRESSION = `(async () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 180;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("no 2d context");
+
+  const candidates = ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"];
+  const mimeType = candidates.find((candidate) => MediaRecorder.isTypeSupported(candidate));
+  if (!mimeType) throw new Error("WebM recording is not supported");
+
+  const stream = canvas.captureStream(20);
+  const recorder = new MediaRecorder(stream, { mimeType });
+  const chunks = [];
+  recorder.ondataavailable = (event) => {
+    if (event.data.size > 0) chunks.push(event.data);
+  };
+  const stopped = new Promise((resolve) => {
+    recorder.onstop = resolve;
+  });
+  recorder.start(100);
+
+  const startedAt = performance.now();
+  await new Promise((resolve) => {
+    function frame() {
+      const elapsed = performance.now() - startedAt;
+      context.fillStyle = "#1d4ed8";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = "#f59e0b";
+      context.fillRect(20 + (elapsed / 8) % 200, 50, 70, 70);
+      if (elapsed < 1500) requestAnimationFrame(frame);
+      else resolve();
+    }
+    frame();
+  });
+
+  recorder.stop();
+  await stopped;
+  stream.getTracks().forEach((track) => track.stop());
+
+  const blob = new Blob(chunks, { type: mimeType.split(";")[0] });
+
+  const thumbnailCanvas = document.createElement("canvas");
+  thumbnailCanvas.width = 320;
+  thumbnailCanvas.height = 180;
+  thumbnailCanvas.getContext("2d").drawImage(canvas, 0, 0, 320, 180);
+  const thumbnail = await new Promise((resolve) =>
+    thumbnailCanvas.toBlob(resolve, "image/png"),
+  );
+
+  const probeUrl = URL.createObjectURL(blob);
+  const probe = document.createElement("video");
+  probe.preload = "metadata";
+  probe.muted = true;
+  probe.src = probeUrl;
+  await new Promise((resolve, reject) => {
+    probe.onloadedmetadata = resolve;
+    probe.onerror = () => reject(new Error("could not read the recording"));
+    setTimeout(resolve, 4000);
+  });
+  const width = probe.videoWidth || 320;
+  const height = probe.videoHeight || 180;
+  const durationMs =
+    Number.isFinite(probe.duration) && probe.duration > 0
+      ? probe.duration * 1000
+      : 1500;
+  URL.revokeObjectURL(probeUrl);
+
+  const request = indexedDB.open("snapdraw");
+  const database = await new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+
+  const record = {
+    id: "e2e-video-session",
+    name: "Recording 2026-11-08 at 00.20.00",
+    createdAt: Date.now(),
+    width: width,
+    height: height,
+    mimeType: blob.type || "video/webm",
+    size: blob.size,
+    kind: "video",
+    durationMs: durationMs,
+    blob: blob,
+    thumbnail: thumbnail,
+  };
+
+  const transaction = database.transaction("screenshots", "readwrite");
+  transaction.objectStore("screenshots").put(record);
+  await new Promise((resolve, reject) => {
+    transaction.oncomplete = resolve;
+    transaction.onerror = () => reject(transaction.error);
+  });
+
+  return {
+    id: record.id,
+    width: width,
+    height: height,
+    durationMs: durationMs,
+    size: blob.size,
+  };
+})()`;
+
 async function main() {
   console.log("SnapDraw end-to-end verification");
   console.log("================================");
@@ -1026,6 +1137,34 @@ async function main() {
         popupState.tagline,
       );
       check("screenshot history entry point is rendered", popupState.hasHistory === true);
+
+      const actionStyles = await browser.evaluate(
+        pages.popup.sessionId,
+        `(() => {
+          const capture = document.querySelector("button.sd-popup__capture");
+          const record = document.querySelector('button[aria-label="Record video"]');
+          return {
+            captureClass: capture?.className ?? "",
+            recordClass: record?.className ?? "",
+            captureHeight: Math.round(capture?.getBoundingClientRect().height ?? 0),
+            recordHeight: Math.round(record?.getBoundingClientRect().height ?? 0),
+          };
+        })()`,
+      );
+      check(
+        "capture and record actions share the same size",
+        actionStyles.captureClass.includes("sd-button--lg") &&
+          actionStyles.recordClass.includes("sd-button--lg") &&
+          actionStyles.captureHeight > 0 &&
+          Math.abs(actionStyles.captureHeight - actionStyles.recordHeight) <= 1,
+        JSON.stringify(actionStyles),
+      );
+      check(
+        "capture and record actions use distinct colours",
+        actionStyles.captureClass.includes("sd-button--primary") &&
+          actionStyles.recordClass.includes("sd-button--record"),
+        JSON.stringify(actionStyles),
+      );
       pages.popupShot = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
         width: 340,
         height: 560,
@@ -1969,6 +2108,282 @@ async function main() {
       );
 
       await browser.send("Target.closeTarget", { targetId: second.popup.targetId });
+    });
+
+    /* ------------------------------------------------------------------ */
+    await step("Video recording, editor and annotated export", async () => {
+      // Popup exposes the recording action and Chrome exposes tabCapture.
+      const popup = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
+        width: 340,
+        height: 640,
+      });
+      await waitForSelector(browser, popup.sessionId, 'button[aria-label="Record video"]');
+      const recordApi = await browser.evaluate(
+        popup.sessionId,
+        `({ tabCapture: typeof chrome.tabCapture?.getMediaStreamId === "function" })`,
+      );
+      check("popup offers video recording", true);
+      check("tabCapture API is available to the extension", recordApi.tabCapture === true);
+
+      // The recorder reports a friendly error when it has no capture stream.
+      const recorder = await openExtensionPage(browser, extensionId, "src/recorder/recorder.html", {
+        width: 900,
+        height: 600,
+      });
+      await waitForSelector(browser, recorder.sessionId, ".sd-recorder__card");
+      const recorderText = await browser.evaluate(
+        recorder.sessionId,
+        `document.querySelector(".sd-recorder")?.innerText ?? ""`,
+      );
+      check(
+        "recorder explains an invalid capture link",
+        /invalid|capture stream|couldn't/i.test(recorderText),
+        recorderText.replace(/\s+/g, " ").slice(0, 120),
+      );
+      await browser.send("Target.closeTarget", { targetId: recorder.targetId });
+
+      // Seed a real WebM recording so the editor can be tested deterministically.
+      const seeded = await browser.evaluate(popup.sessionId, SEED_VIDEO_EXPRESSION);
+      check(
+        "synthetic WebM recording created",
+        seeded.size > 1000 && seeded.width > 0 && seeded.durationMs > 0,
+        JSON.stringify(seeded),
+      );
+      await browser.send("Target.closeTarget", { targetId: popup.targetId });
+
+      const videoUrl = `chrome-extension://${extensionId}/src/video/video.html?session=${seeded.id}`;
+      const videoPage = await openPage(browser, videoUrl, { width: 1200, height: 760 });
+      await setColorScheme(browser, videoPage.sessionId, "light");
+      await waitForSelector(browser, videoPage.sessionId, "video.sd-video__player");
+      const videoState = await waitFor(
+        async () =>
+          browser.evaluate(
+            videoPage.sessionId,
+            `(() => {
+              const video = document.querySelector("video.sd-video__player");
+              return video && video.readyState >= 2
+                ? { duration: video.duration, width: video.videoWidth, height: video.videoHeight }
+                : null;
+            })()`,
+          ),
+        { label: "video metadata", timeoutMs: 20_000 },
+      );
+      check(
+        "video editor loads the recording",
+        videoState.width > 0,
+        JSON.stringify(videoState),
+      );
+      await waitForSelector(browser, videoPage.sessionId, ".sd-video__overlay .excalidraw");
+      const overlayRect = await browser.evaluate(
+        videoPage.sessionId,
+        `(() => {
+          const element = document.querySelector(".sd-video__overlay");
+          if (!element) return null;
+          const rect = element.getBoundingClientRect();
+          return { x: rect.left, y: rect.top, width: rect.width, height: rect.height };
+        })()`,
+      );
+      check(
+        "annotations overlay the video area",
+        Boolean(overlayRect && overlayRect.width > 100 && overlayRect.height > 60),
+        JSON.stringify(overlayRect),
+      );
+      if (!overlayRect) {
+        throw new Error("Video overlay was not rendered");
+      }
+
+      // Draw a rectangle in the middle of the video (away from Excalidraw's
+      // top-left menu button so the annotation tools get the gesture).
+      await browser.send("Target.activateTarget", { targetId: videoPage.targetId });
+      const centerX = overlayRect.x + overlayRect.width / 2;
+      const centerY = overlayRect.y + overlayRect.height / 2;
+      await clickAt(browser, videoPage, centerX, centerY);
+      await pressKey(browser, videoPage, "r", "KeyR", 82);
+      await sleep(200);
+      await dragFromTo(
+        browser,
+        videoPage,
+        { x: centerX - 110, y: centerY - 60 },
+        { x: centerX + 110, y: centerY + 60 },
+      );
+      await sleep(400);
+
+      // "Clear annotations" is only enabled when the scene has annotations.
+      await browser.evaluate(
+        videoPage.sessionId,
+        `document.querySelector('button[aria-label="More actions"]')?.click(); true`,
+      );
+      await sleep(300);
+      const videoMenu = await browser.evaluate(
+        videoPage.sessionId,
+        `(() => {
+          const menu = document.querySelector("[role='menu']");
+          if (!menu) return null;
+          const items = Array.from(menu.querySelectorAll("button"));
+          return items.map((item) => ({
+            text: (item.textContent || "").trim(),
+            disabled: item.disabled === true,
+          }));
+        })()`,
+      );
+      const clearItem = (videoMenu ?? []).find((item) => /Clear annotations/.test(item.text));
+      check(
+        "annotation is drawn on the video scene",
+        Boolean(clearItem) && clearItem.disabled === false,
+        JSON.stringify(videoMenu),
+      );
+      await pressKey(browser, videoPage, "Escape", "Escape", 27);
+      await sleep(200);
+      await clickAt(browser, videoPage, centerX, centerY + 120);
+      await sleep(300);
+
+      // Editor screenshot artifact for the docs.
+      const videoShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        videoPage.sessionId,
+      );
+      await writeFile(
+        path.join(screenshotsDir, "video-editor.png"),
+        Buffer.from(videoShot.data, "base64"),
+      );
+      check(
+        "video editor screenshot saved",
+        existsSync(path.join(screenshotsDir, "video-editor.png")),
+      );
+
+      // Copy the annotated current frame to the clipboard.
+      try {
+        await browser.send("Browser.grantPermissions", {
+          origin: `chrome-extension://${extensionId}`,
+          permissions: ["clipboardReadWrite", "clipboardSanitizedWrite"],
+        });
+      } catch {
+        // Already granted earlier in the run.
+      }
+      await clickButtonByAriaLabel(browser, videoPage, "Copy frame");
+      await waitForToast(browser, videoPage, "Frame copied");
+      const frameClipboard = await browser.evaluate(
+        videoPage.sessionId,
+        `(async () => {
+          try {
+            const items = await navigator.clipboard.read();
+            let size = 0;
+            let hasPng = false;
+            for (const item of items) {
+              if (item.types.includes("image/png")) {
+                hasPng = true;
+                size = (await item.getType("image/png")).size;
+              }
+            }
+            return { hasPng, size };
+          } catch (error) {
+            return { error: String(error) };
+          }
+        })()`,
+      );
+      check(
+        "video frame with annotations is copied to the clipboard",
+        frameClipboard.hasPng === true && frameClipboard.size > 500,
+        JSON.stringify(frameClipboard),
+      );
+
+      // Export the annotated video (real-time canvas render → WebM).
+      const beforeVideo = await snapshotDownloads();
+      await clickSelectorWithMouse(browser, videoPage, 'button[aria-label="Download video"]');
+      const videoFile = await waitForNewDownload(beforeVideo, "annotated-video", "webm");
+      const videoBytes = await readFile(videoFile);
+      check(
+        "annotated video exports as a WebM file",
+        videoBytes.length > 1000 &&
+          videoBytes[0] === 0x1a &&
+          videoBytes[1] === 0x45 &&
+          videoBytes[2] === 0xdf &&
+          videoBytes[3] === 0xa3,
+        `${videoBytes.length} bytes`,
+      );
+      await copyFile(videoFile, path.join(resultsDir, "annotated-video.webm"));
+      await browser.send("Target.closeTarget", { targetId: videoPage.targetId });
+
+      // History marks videos and reopens them in the video editor.
+      const popup2 = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
+        width: 340,
+        height: 640,
+      });
+      await waitForSelector(browser, popup2.sessionId, ".sd-recent");
+      const videoPreview = await browser.evaluate(
+        popup2.sessionId,
+        `({
+          thumbs: document.querySelectorAll(".sd-recent__thumb").length,
+          playBadge: Boolean(document.querySelector(".sd-recent__play")),
+        })`,
+      );
+      check(
+        "recent preview marks the recording with a play badge",
+        videoPreview.thumbs >= 1 && videoPreview.playBadge === true,
+        JSON.stringify(videoPreview),
+      );
+
+      await browser.evaluate(
+        popup2.sessionId,
+        `document.querySelector('button[aria-label="Open screenshot history"]')?.click(); true`,
+      );
+      await waitForSelector(browser, popup2.sessionId, ".sd-history__list");
+      const videoRow = await browser.evaluate(
+        popup2.sessionId,
+        `(() => {
+          const row = Array.from(document.querySelectorAll(".sd-history__item"))
+            .find((element) => element.querySelector(".sd-history__play"));
+          return row
+            ? {
+                meta: row.querySelector(".sd-history__meta")?.textContent ?? "",
+                name: row.querySelector(".sd-history__name")?.textContent ?? "",
+              }
+            : null;
+        })()`,
+      );
+      check(
+        "history lists the recording with its duration",
+        Boolean(videoRow) && /\d:\d\d/.test(videoRow?.meta ?? ""),
+        JSON.stringify(videoRow),
+      );
+
+      const existingTargets = new Set();
+      for (const info of browser.targets.values()) {
+        if (info.type === "page") existingTargets.add(info.targetId);
+      }
+      await browser.evaluate(
+        popup2.sessionId,
+        `(() => {
+          const row = Array.from(document.querySelectorAll(".sd-history__item"))
+            .find((element) => element.querySelector(".sd-history__play"));
+          row?.querySelector(".sd-history__open")?.click();
+          return Boolean(row);
+        })()`,
+      );
+      const reopened = await waitFor(
+        async () => {
+          for (const info of browser.targets.values()) {
+            if (info.type !== "page" || existingTargets.has(info.targetId)) {
+              continue;
+            }
+            if (info.url.includes("/src/video/video.html")) {
+              return info;
+            }
+          }
+          return null;
+        },
+        { label: "video editor reopened from history", timeoutMs: 20_000 },
+      );
+      check(
+        "history opens the recording in the video editor",
+        new URL(reopened.url).searchParams.get("session") === seeded.id,
+        reopened.url,
+      );
+      await browser.send("Target.closeTarget", { targetId: reopened.targetId });
+      if (browser.targets.has(popup2.targetId)) {
+        await browser.send("Target.closeTarget", { targetId: popup2.targetId });
+      }
     });
 
     /* ------------------------------------------------------------------ */

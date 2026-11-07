@@ -1,10 +1,11 @@
 # SnapDraw
 
-**Capture your screen → annotate it instantly with Excalidraw → copy or download the finished PNG.**
+**Capture your screen → annotate it with Excalidraw → copy or download. Now with tab video recording.**
 
-SnapDraw is a lightweight Chrome extension (Manifest V3) that turns the visible browser viewport into
-an editable Excalidraw canvas in a single click. No account, no upload, no backend — the screenshot,
-the annotations and every asset live on your machine.
+SnapDraw is a lightweight Chrome extension (Manifest V3) that turns the visible browser viewport
+into an editable Excalidraw canvas in a single click — and can **record the current tab**, then
+annotate the video with the same Excalidraw toolset. No account, no upload, no backend: captures,
+recordings, annotations and every asset live on your machine.
 
 | Popup | Editor (light) |
 | --- | --- |
@@ -15,6 +16,11 @@ the annotations and every asset live on your machine.
 | ![SnapDraw editor in dark mode](docs/screenshots/editor-dark.png) | ![Exported annotated PNG](docs/screenshots/export-annotated.png) |
 
 *Screenshots and the exported PNG above are produced automatically by the end-to-end test suite.*
+
+![SnapDraw video editor](docs/screenshots/video-editor.png)
+
+*The video editor plays the recording with a transparent Excalidraw layer on top; annotations are
+baked into the exported WebM (or copied as a still frame).*
 
 ![SnapDraw menu](docs/screenshots/editor-menu.png)
 
@@ -68,13 +74,21 @@ reopen it, or **View all** for the full history.*
 - **Copy to clipboard** – exports the annotated PNG and writes it to the clipboard (Slack, Discord,
   mail, docs…), with a confirmation toast and graceful error handling.
 - **Download PNG** – full-quality 1:1 export (screenshot + annotations + breathing-room padding).
-- **Multi-capture safe** – every capture gets a UUID session; several editor tabs never mix data.
-- **Saved history + refresh-safe editor** – captures are kept in local IndexedDB, so reloading the
-  editor tab keeps the screenshot, and the popup's **Screenshot history** lists every saved capture
-  (newest first, with thumbnails) to reopen, delete or clear. The capture view also shows a compact
-  **recent-captures preview** (up to three thumbnails, click to reopen) with a **View all** link.
-  Old captures saved without a thumbnail are healed automatically by generating and persisting one.
-  Up to 20 captures are kept for 30 days.
+- **Record the current tab** – one more click in the popup starts a `tabCapture` recording. The popup
+  gives both actions the same size and shape (purple *Capture Screenshot*, warm red *Record video*).
+  A dedicated recorder tab shows the live timer; switch tabs while it records, then **Stop and open
+  editor**. The recording (including tab audio when available) is saved as a local WebM.
+- **Annotate videos with the same Excalidraw tools** – the video editor plays the recording with a
+  fully transparent Excalidraw layer positioned exactly over the video, so every drawing tool works.
+  Annotations cover the whole clip. **Copy frame** puts the annotated current frame on the clipboard,
+  **Download video** renders the annotated WebM, and the header can also download the original.
+- **Multi-capture safe** – every capture/recording gets a UUID session; several editor tabs never mix data.
+- **Saved history + refresh-safe editor** – captures and recordings are kept in local IndexedDB, so
+  reloading an editor tab keeps the media, and the popup's **Screenshot history** lists everything
+  (images and videos, newest first, with thumbnails + duration) to reopen, delete or clear. The capture
+  view also shows a compact **recent-captures preview** (up to three thumbnails, click to reopen) with
+  a **View all** link. Old captures saved without a thumbnail are healed automatically.
+  Up to 20 captures/recordings are kept for 30 days.
 - **Light & dark** – follows the OS colour scheme; the exported PNG is always light/white.
 - **Friendly failures** – restricted pages (`chrome://`, Web Store, other extensions, DevTools) get
   an explanation and a retry path instead of a cryptic Chrome error.
@@ -112,6 +126,35 @@ worker writes a `Blob` (plus a small thumbnail) into IndexedDB and the editor re
 extension origin. Nothing is deleted on load, so **refreshing the editor keeps the screenshot** and
 the same capture can be reopened later from the popup's history. A retention sweep (30 days / newest
 20 captures) keeps the local history bounded.
+
+### Video recording
+
+```text
+  popup "Record video" (user gesture)
+          │
+          │ chrome.tabCapture.getMediaStreamId({ targetTabId })
+          ▼
+  recorder.html?stream=<id>            ← opened in a new tab
+          │
+          │ getUserMedia(chromeMediaSource: "tab") → MediaRecorder (WebM + tab audio)
+          │ live timer · Stop / Cancel · "keep this tab open"
+          ▼
+  saveRecording() ──▶ IndexedDB (kind: "video", duration, thumbnail)
+          │
+          ▼
+  video.html?session=<uuid>            ← same tab navigates to the editor
+          │
+          │ <video> + transparent Excalidraw overlay (object-fit: contain rect)
+          │ Copy frame (PNG) · Download annotated video (WebM) · Download original
+          ▼
+  exportAnnotatedVideo(): canvas.captureStream + MediaRecorder, real-time
+  compositing of video frame + annotations, tab audio mixed via AudioContext
+```
+
+The recorder tab is a normal extension page, so closing it stops the recording (Chrome asks before
+unloading). Recording needs the toolbar-icon click — that is what grants `activeTab`/`tabCapture` for
+the tab. Chrome-protected pages (`chrome://`, the Web Store, DevTools) are rejected with a friendly
+message before recording starts.
 
 ## Quick start
 
@@ -161,14 +204,31 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
    header next to undo/redo; **Copy Image** and **Download** are on the right.
 7. Reopen the popup to see the **saved history**: the capture view shows a compact **Recent** strip
    (click a thumbnail to reopen that capture), and **View all · N** opens the full history (reopen,
-   delete one, or **Clear all**). Refreshing an editor tab keeps its screenshot, and captures survive
+   delete one, or **Clear all**). Refreshing an editor tab keeps its media, and captures survive
    browser restarts until they age out of the history (30 days / 20 newest).
+
+### Recording a video
+
+1. Open the normal `http(s)` tab you want to record and click the SnapDraw icon.
+2. Click **Record video**. A **recorder tab** opens and starts capturing immediately (video + tab
+   audio when available); the timer shows elapsed time.
+3. Switch tabs or use the page as usual — recording continues. Keep the recorder tab open until you
+   stop (closing it ends the recording).
+4. Click **Stop and open editor**. The recorder saves the WebM locally and the same tab becomes the
+   **video editor**.
+5. Annotate over the video with the Excalidraw tools (the layer is transparent and exactly covers the
+   video). Use the transport bar to play/seek/mute; **Copy frame** copies the annotated current frame,
+   **Download video** renders the annotated WebM (real time), and **More → Download original** saves
+   the un-annotated recording.
+6. Recordings appear in the same history as screenshots, marked with a play badge and their duration.
 
 The pointer is the selection tool. Keyboard shortcuts from Excalidraw apply (`1`–`8` / `r`, `o`,
 `a`, `t`, `l`, `p`, `d`, `z` for tools; `Ctrl/⌘+Z`, `Shift+Ctrl/⌘+Z` for undo/redo; space-drag to pan).
 
 Change the capture shortcut at `chrome://extensions/shortcuts` (SnapDraw → *Capture the visible
-screen…*). The popup always shows the shortcut that is actually registered.
+screen…*). The popup always shows the shortcut that is actually registered. The keyboard shortcut
+captures a screenshot; video recording is started from the popup (Chrome needs the icon-click gesture
+for `tabCapture`).
 
 ## Scripts
 
@@ -178,8 +238,8 @@ screen…*). The popup always shows the shortcut that is actually registered.
 | `npm run build:only` | Same as `build` without the TypeScript check (faster iteration). |
 | `npm run dev` | Watch-mode development build. |
 | `npm run typecheck` | `tsc --noEmit` across the whole project. |
-| `npm test` | Vitest unit + invariant suite (147 tests: storage, image conversion, messaging, manifest, capture service, export service). |
-| `npm run test:e2e` | Drives the **built** extension in headless Chrome via CDP: capture → editor → annotate → undo/redo → clipboard → download → multi-capture isolation → restricted-page errors → local-only audit. Writes `test-results/e2e-report.json` and `docs/screenshots/*.png`. |
+| `npm test` | Vitest unit + invariant suite (175 tests: storage/history, image & video helpers, recording service, messaging, manifest, capture/export services). |
+| `npm run test:e2e` | Drives the **built** extension in headless Chrome via CDP: capture → editor → annotate → undo/redo → clipboard → download → history/preview → video editor + annotated WebM export → multi-capture isolation → restricted-page errors → local-only audit. Writes `test-results/e2e-report.json` and `docs/screenshots/*.png`. |
 | `npm run verify` | `build` + `test` + `test:e2e`. |
 | `npm run icons` | Regenerates `public/icons/icon{16,48,128}.png` from the logo geometry (no image dependency). |
 | `npm run clean` | Removes `dist/`. |
@@ -198,15 +258,18 @@ snapdraw/
 │   ├── popup/                      # Popup.tsx, popup.css, useCapture.ts, shortcut.ts, components/
 │   ├── editor/                     # Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, AboutDialog.tsx,
 │   │                               # excalidrawActions.ts, links.ts, editor.css
+│   ├── recorder/                   # RecorderPage.tsx, recorder.css (tabCapture recording UI)
+│   ├── video/                      # VideoEditor.tsx, VideoStage.tsx, VideoHeader.tsx, TransportBar.tsx
 │   ├── components/                 # Button, Toast, Logo (shared primitives)
-│   ├── services/                   # screenshot, image, storage, thumbnail, export, clipboard
+│   ├── services/                   # screenshot, image, storage, thumbnail, recording, video,
+│   │                               # video-export, export, clipboard
 │   ├── utils/                      # messaging, image-conversion
 │   ├── types/                      # shared contracts + Excalidraw export type shim
 │   └── styles/global.css           # design tokens + shared component styles
 ├── tests/                          # Vitest suites
 ├── scripts/                        # build/validation/E2E/icon pipelines
 ├── docs/screenshots/               # generated screenshots used in this README
-├── vite.config.ts                  # multi-entry MV3 build (popup, editor, service worker)
+├── vite.config.ts                  # multi-entry MV3 build (popup, editor, video, recorder, worker)
 ├── tsconfig.json
 └── package.json
 ```
@@ -222,6 +285,9 @@ snapdraw/
 | **Screenshot service** (`src/services/screenshot.service.ts`) | The capture pipeline itself (including thumbnail generation and history pruning); pure helpers (`classifyTabUrl`, `buildScreenshotName`, `toErrorPayload`) are unit-tested. |
 | **Editor** (`src/editor/`) | Loads the capture from IndexedDB, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu and loading/error screens. Refresh-safe: the stored capture is not deleted. |
 | **Excalidraw integration** (`src/editor/EditorCanvas.tsx`, `excalidrawActions.ts`) | One locked image element at natural pixel size + `files` map, `fitToContent` on mount, scene updates for lock/clear, PNG export helpers. |
+| **Recorder** (`src/recorder/`) | Opened by the popup with a `tabCapture` stream id; consumes it with `getUserMedia`, records with `MediaRecorder` (WebM + tab audio), shows a timer, saves to IndexedDB and replaces itself with the video editor. |
+| **Video editor** (`src/video/`) | Loads the recording, renders `<video>` with a transparent Excalidraw overlay on the exact video rect, transport controls, Copy frame / Download annotated video / Download original, progress + cancel. |
+| **Video services** (`src/services/recording.service.ts`, `video.service.ts`, `video-export.service.ts`) | Stream-id handover + recording persistence, video metadata/thumbnail/duration helpers, and real-time annotated-WebM export (`canvas.captureStream` + `MediaRecorder`, tab audio mixed via `AudioContext`). |
 | **Services** (`src/services/`) | `storage` (IndexedDB history, thumbnails, pruning), `image` (decode/encode), `export` (PNG blob + download), `clipboard`. |
 
 ### Image transfer, persistence and history
@@ -237,6 +303,26 @@ snapdraw/
   records that predate thumbnails get one generated on demand and persisted. Retention is bounded to
   the newest **20 captures** and **30 days** (`HISTORY_LIMIT` / `HISTORY_RETENTION_MS` in
   `storage.service.ts`), pruned on startup and after captures.
+
+### Video recording, persistence and export
+
+- Records use the same IndexedDB store, tagged `kind: "video"`, with `durationMs` and a WebM
+  thumbnail. History/preview show a play badge and the duration, and open the video editor instead of
+  the image editor (`kind` routing in `src/popup/openScreenshot.ts`).
+- **Recording:** the popup calls `chrome.tabCapture.getMediaStreamId()` while it still owns the user
+  gesture, opens `src/recorder/recorder.html?stream=<id>`, and that page records with
+  `MediaRecorder` (`video/webm;codecs=vp8|vp9,opus`). Video + tab audio are captured when available;
+  audio failure falls back to video-only. The recorder stays in a normal tab so the user can switch
+  tabs; closing it finalises/stops the recording.
+- **Editing:** `src/video/video.html?session=<id>` renders the video with a transparent Excalidraw
+  canvas positioned over the `object-fit: contain` video rectangle — annotations map 1:1 onto the
+  recording. Annotations cover the whole clip (per-timestamp annotations are a v2 item).
+- **Export:** `exportAnnotatedVideo()` replays the video in real time, draws each frame + the
+  Excalidraw static canvas into a `<canvas>` at the recording's native resolution, captures that canvas
+  at 30 fps together with the original audio (`AudioContext` → `MediaStreamAudioDestinationNode`, not
+  routed to the speakers), and records the result with `MediaRecorder` to a local WebM. Progress and
+  Cancel are exposed in the UI. Because it is real-time, a 2-minute clip takes about 2 minutes to
+  export.
 
 ### Excalidraw integration notes
 
@@ -266,10 +352,13 @@ snapdraw/
 SnapDraw is designed so that no byte of your screen content can leave the machine:
 
 - **No backend, no accounts, no analytics, no telemetry, no external requests in `src/`.**
-- **Screenshots live only in IndexedDB** inside your Chrome profile — kept as a local history so the
-  editor can be refreshed and captures can be reopened later. At most 20 captures (30 days) are kept;
-  delete individual entries or clear everything from the popup's history. Uninstalling SnapDraw or
-  clearing the extension's site data removes them.
+- **Screenshots and recordings live only in IndexedDB** inside your Chrome profile — kept as a local
+  history so editors can be refreshed and captures can be reopened later. At most 20 items (30 days)
+  are kept; delete individual entries or clear everything from the popup's history. Uninstalling
+  SnapDraw or clearing the extension's site data removes them.
+- **Video stays local too:** tab recording uses Chrome's `tabCapture` stream, MediaRecorder stores the
+  WebM in IndexedDB, and the annotated export is rendered in-page. No upload, no cloud, no ffmpeg
+  service — the only output is the file you choose to download.
 - **All Excalidraw fonts are bundled** (`npm run build` copies them from the installed package into
   `public/fonts`, ~12 MB). Nothing is fetched from `esm.sh` or any other CDN at runtime.
 - **Strict Manifest V3 CSP** on every extension page:
@@ -281,22 +370,23 @@ SnapDraw is designed so that no byte of your screen content can leave the machin
   ```
 
   Remote scripts, fonts, images, media and network connections are blocked by Chrome itself.
-- The **only** file that ever leaves the extension is a PNG you explicitly download or copy.
+- The **only** files that ever leave the extension are a PNG/frame you copy or a PNG/WebM you download.
 - `npm run build` fails validation if the manifest gains extra permissions, host permissions,
   content scripts, remote URLs in extension pages, or loses the local-only CSP directives
   (`scripts/validate-build.mjs`).
 
 ## Permissions
 
-Only two permissions are requested, and there are **no host permissions**:
+Only three permissions are requested, and there are **no host permissions**:
 
 | Permission | Why it is needed |
 | --- | --- |
-| `activeTab` | Grants one-time access to the tab the user just clicked on. `chrome.tabs.captureVisibleTab()` requires it (or broad host permissions we deliberately avoid), and it lets the worker read the tab's URL/title to produce a friendly name and reject restricted pages. Granted by the toolbar popup click and by the keyboard command. |
-| `clipboardWrite` | Allows the editor to put the annotated PNG on the clipboard. |
+| `activeTab` | Grants one-time access to the tab the user just clicked on. `chrome.tabs.captureVisibleTab()` requires it (or broad host permissions we deliberately avoid), and it lets the extension read the tab's URL/title to produce a friendly name and reject restricted pages. Granted by the toolbar popup click and by the keyboard command. |
+| `tabCapture` | Records the current tab's video (and its audio when available) with `chrome.tabCapture.getMediaStreamId()` + `getUserMedia`. Only usable after the user invokes the extension (toolbar click), which is exactly how recording starts. |
+| `clipboardWrite` | Allows the editors to put an annotated PNG/frame on the clipboard. |
 
 Persistence uses **IndexedDB**, so no `storage` permission is needed. Tabs are opened with
-`chrome.tabs.create` (no permission required) and the editor does not need `scripting`.
+`chrome.tabs.create` (no permission required) and the editors do not need `scripting`.
 
 Chrome refuses to capture a handful of protected pages. SnapDraw detects these up front and explains
 the restriction instead of failing with a raw Chrome error: `chrome://` / `chrome-untrusted://` /
@@ -307,21 +397,25 @@ pages.
 
 ### Unit & invariant tests (`npm test`)
 
-150 tests across six suites, no network and no real Chrome:
+175 tests across eight suites, no network and no real Chrome:
 
 - `tests/storage.test.ts` – IndexedDB round-trips (multi-MB `Blob` byte-exact), isolation of three
   concurrent sessions, history listing + thumbnails, retention/TTL purge, history trimming and
   clearing.
 - `tests/image-conversion.test.ts` – data-URL ↔ Blob conversion, `fitWithin`, `formatBytes`,
   dimension-decoding failure path.
-- `tests/messaging.test.ts` – message contracts, URL/session parsing, `requestCapture` error
+- `tests/messaging.test.ts` – message contracts, URL/session/recorder parsing, `requestCapture` error
   normalisation, service-worker listener behaviour (including synchronous throws).
-- `tests/manifest.test.ts` – MV3 shape, exact permission set, no host permissions/content scripts,
-  local-only CSP, icon files, command binding.
+- `tests/manifest.test.ts` – MV3 shape, exact permission set (including `tabCapture`), no host
+  permissions/content scripts, local-only CSP, icon files, command binding, recorder/video entries.
 - `tests/screenshot.service.test.ts` – URL classification (22 cases), naming, Chrome error mapping,
   every capture failure path plus the full success path against mocked `chrome` + fake-indexeddb.
 - `tests/export.service.test.ts` – filename sanitising, pre-flight size guards, error mapping,
   download guard.
+- `tests/video.service.test.ts` – duration formatting, video filename sanitising, `kind`/mime
+  detection, MediaRecorder mime selection, missing-recording errors.
+- `tests/recording.service.test.ts` – recording naming, `tabCapture` stream-id handover + error mapping,
+  and persisting a finished WebM as a `kind: "video"` history record with duration.
 
 ### End-to-end tests (`npm run test:e2e`)
 
@@ -331,11 +425,12 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (91 checks, all driven through real input events and real downloads):
+It verifies (106 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
-- popup renders the capture action, shortcut hint, local-only copy, version, dash-free tagline and the
-  history entry point;
+- popup renders the capture action, record-video action, shortcut hint, local-only copy, version,
+  dash-free tagline and the history entry point; the capture and record actions share one size/shape
+  and use distinct colours (primary gradient vs. warm record gradient);
 - one click captures a 1200×760 viewport, opens the editor tab with that session, and loads the
   screenshot into Excalidraw at exactly 1232×792 (native size + 16px padding);
 - the capture is **saved** (not deleted), and reloading the editor tab restores the screenshot with no
@@ -357,9 +452,15 @@ It verifies (91 checks, all driven through real input events and real downloads)
 - the capture view's **recent-captures preview** shows the saved thumbnails (verified to contain the
   actual page content, not a blank block), links to the full history and opens the newest capture
   when clicked; a legacy capture without a thumbnail gets one generated and persisted automatically;
+- the recorder tab explains an invalid capture link, `tabCapture` is available, and the popup exposes
+  the Record video action;
+- the **video editor** loads a real WebM, mounts the transparent Excalidraw overlay over the video,
+  accepts a drawn annotation, copies the annotated frame to the clipboard, and **exports a valid
+  annotated WebM** (EBML header checked) from a real-time render;
+- history marks the recording with a play badge + duration and reopens it in the video editor;
 - extension pages produce the friendly restricted-page error with retry; missing/expired sessions and
   `?error=` messages show recoverable error screens;
-- light + dark editor screenshots are written to `docs/screenshots/`.
+- light + dark editor screenshots (and the video editor screenshot) are written to `docs/screenshots/`.
 
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`, `docs/screenshots/*.png`.
 
@@ -388,6 +489,32 @@ again, or open a saved capture from **Screenshot history** in the popup.
 It shouldn't — captures are persisted in IndexedDB. Make sure you are on the latest build and that
 Chrome allows the extension to store site data (extension pages use `chrome-extension://` origin
 storage). Rebuild + reload the extension if you upgraded from the earlier "delete after load" build.
+
+**"SnapDraw couldn't start recording this tab."**
+Recording only works on normal `http(s)` pages, and must be started from the popup (Chrome requires the
+toolbar-click gesture for `tabCapture`). `chrome://` pages, the Web Store, and DevTools cannot be
+recorded. Make sure the tab is visible/reloadable and try again — the extension console
+(`chrome://extensions` → SnapDraw → *Service worker*) logs the underlying reason.
+
+**I closed the recorder tab and the recording vanished.**
+Closing the recorder tab stops the capture (Chrome asks before unloading). There is no background
+recorder, by design: keep the recorder tab open until you press **Stop and open editor**. If you need a
+long recording, leave it in its own tab and switch to other tabs to work.
+
+**The annotated video export takes as long as the recording.**
+That's expected: the editor replays the clip and re-records the canvas in real time (this keeps the
+tab audio in sync). Keep the editor tab in the foreground while it renders; a background tab gets
+throttled by Chrome. **Cancel** is always available, and your annotations are kept if you cancel.
+
+**The exported WebM doesn't play in some app.**
+SnapDraw records WebM (VP8/VP9 video + Opus audio), which Chrome, Edge and Firefox play natively.
+Safari/QuickTime and some editors need an MP4 conversion; do that locally with your preferred tool.
+The original recording is always downloadable un-annotated from **More → Download original**.
+
+**No audio in the recording.**
+SnapDraw captures the tab's audio, not the microphone or system audio. A muted tab, or a page that
+wasn't playing sound, records silently; audio capture falls back to video-only when the tab has no
+audio track.
 
 **Copy Image says the clipboard is unavailable.**
 Clipboard writes need a focused window and a user gesture, and some managed Chrome profiles block
@@ -422,13 +549,17 @@ The code is split so the roadmap can be added without reworking version 1:
   local-only and its header/menu carry no share action. When adding sharing, introduce an opt-in
   provider layer (typed `ShareProvider` interface + registry), surface it in the SnapDraw menu and
   require explicit `host_permissions`; nothing should leave the device until a provider is enabled.
-- **Saved projects / annotated-scene persistence.** The history stores the original capture (so the
-  editor survives refreshes and captures can be reopened); annotations are not persisted yet. Add a
+- **Saved projects / annotated-scene persistence.** The history stores the original capture/recording
+  (so editors survive refreshes and can be reopened); annotations are not persisted yet. Add a
   `projects` store in a version-2 IndexedDB upgrade and serialise the Excalidraw scene
-  (`serializeAsJSON` + `files`) alongside the capture, then hydrate `EditorCanvas.tsx` from it.
+  (`serializeAsJSON` + `files`) alongside the capture, then hydrate `EditorCanvas.tsx` / `VideoStage`
+  from it. A scene timeline (`[{ atMs, elements }]`) would also unlock per-timestamp video annotations.
 - **Configurable history.** Retention is currently fixed (`HISTORY_LIMIT` 20 / `HISTORY_RETENTION_MS`
   30 days) in `storage.service.ts`; surface those as settings and add thumbnails to a dedicated
   full-page history view if the popup ever feels small.
+- **Video editing depth.** Timestamped/keyframed annotations synced to playback, trimming/clipping,
+  camera + microphone tracks, PiP overlays, and faster-than-realtime export via WebCodecs (and MP4
+  output). The recorder page and `exportAnnotatedVideo()` are the extension points.
 - **Full-page capture.** `captureVisibleViewport()` in `screenshot.service.ts` is the single entry
   point; implement scrolling + `captureVisibleTab` stitching (or `chrome.debugger` /
   `captureBeyondViewport`) behind the same `CaptureResponse` contract. The editor accepts any
@@ -436,7 +567,8 @@ The code is split so the roadmap can be added without reworking version 1:
 - **Custom naming / multiple sessions.** The document name comes from `buildScreenshotName()` and is
   editable in the header in a future iteration; session IDs are already per-capture UUIDs.
 - **More shortcuts.** Add commands to `public/manifest.json` and handle them in
-  `background/service-worker.ts` next to `capture-screenshot`.
+  `background/service-worker.ts` next to `capture-screenshot` (recording needs the popup gesture for
+  `tabCapture`, so a shortcut can only open the popup).
 
 Keep the validation rules in `scripts/validate-build.mjs` in mind: new permissions or remote URLs must
 be intentional and documented.
@@ -446,6 +578,9 @@ be intentional and documented.
 - [Excalidraw](https://github.com/excalidraw/excalidraw) (`@excalidraw/excalidraw@0.18.1`, MIT) – the
   entire drawing engine, UI and export pipeline. SnapDraw embeds the package; it does not fork the app.
 - React 18 + TypeScript 5 (strict) + Vite 8 (Rolldown) + Manifest V3.
+- Video: `chrome.tabCapture` + `MediaRecorder` (WebM/VP8-9 + Opus) for recording, and
+  `canvas.captureStream` + `MediaRecorder` + `AudioContext` / `MediaStreamAudioDestinationNode` for the
+  annotated export — no ffmpeg or server-side processing.
 - Vitest + fake-indexeddb for tests; a dependency-free PNG decoder in the E2E harness.
 - Logo and icons are drawn in code (`src/components/Logo.tsx`, `scripts/generate-icons.mjs`) and
   generated as real PNGs — no binary design assets from third parties.

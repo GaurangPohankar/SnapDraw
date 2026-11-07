@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../components/Button";
 import { ToastViewport, useToast } from "../components/Toast";
-import { isExtensionContext } from "../utils/messaging";
+import { getTabCaptureStreamId } from "../services/recording.service";
+import { classifyTabUrl } from "../services/screenshot.service";
+import {
+  buildRecorderUrl,
+  isExtensionContext,
+} from "../utils/messaging";
 import { ErrorPanel } from "./components/ErrorPanel";
 import { Header } from "./components/Header";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -13,6 +18,7 @@ import {
   ImageIcon,
   InfoIcon,
   ShieldIcon,
+  VideoIcon,
 } from "./components/icons";
 import { openScreenshotInEditor } from "./openScreenshot";
 import { SHORTCUTS_URL } from "./shortcut";
@@ -64,6 +70,8 @@ export function Popup() {
   const { status, phase, error, isPreview, capture } = useCapture();
   const { toasts, showToast, dismissToast } = useToast();
   const [view, setView] = useState<PopupView>("capture");
+  const [recordingStarting, setRecordingStarting] = useState(false);
+  const [recordingError, setRecordingError] = useState<string | null>(null);
   const {
     recent,
     total: historyTotal,
@@ -127,6 +135,51 @@ export function Popup() {
         ? "Capturing…"
         : "Opening editor…"
       : "Capture Screenshot";
+
+  /**
+   * Starts a tab recording: grab the capture stream id while the popup still has
+   * the user gesture, then hand it to the recorder tab.
+   */
+  const startRecording = useCallback(async (): Promise<void> => {
+    if (isPreview || recordingStarting) {
+      return;
+    }
+
+    setRecordingStarting(true);
+    setRecordingError(null);
+
+    try {
+      if (!isExtensionContext()) {
+        throw new Error("Video recording needs the SnapDraw extension.");
+      }
+
+      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+      const tab = tabs[0];
+      if (!tab?.id) {
+        throw new Error("SnapDraw couldn't find the active tab.");
+      }
+
+      const classification = classifyTabUrl(tab.url);
+      if (classification.restricted) {
+        throw new Error(
+          "Chrome doesn't allow recording this page. Switch to a normal website tab and try again.",
+        );
+      }
+
+      const streamId = await getTabCaptureStreamId(tab.id);
+      await chrome.tabs.create({
+        url: buildRecorderUrl(streamId, tab.id),
+        active: true,
+      });
+      window.close();
+    } catch (error) {
+      setRecordingError(
+        error instanceof Error ? error.message : "Couldn't start recording.",
+      );
+    } finally {
+      setRecordingStarting(false);
+    }
+  }, [isPreview, recordingStarting]);
 
   const openHistory = (): void => {
     setView("history");
@@ -212,6 +265,27 @@ export function Popup() {
               </div>
             )}
 
+            <Button
+              variant="record"
+              size="lg"
+              fullWidth
+              className="sd-popup__record"
+              leadingIcon={<VideoIcon size={19} />}
+              loading={recordingStarting}
+              disabled={isPreview || status === "capturing" || status === "success"}
+              aria-label="Record video"
+              title="Record this tab, then annotate the video in Excalidraw"
+              onClick={() => void startRecording()}
+            >
+              {recordingStarting ? "Opening recorder…" : "Record video"}
+            </Button>
+
+            {recordingError ? (
+              <p className="sd-popup__record-error" role="alert">
+                {recordingError}
+              </p>
+            ) : null}
+
             <ShortcutRow onCopyResult={handleCopyResult} />
 
             {historyTotal === 0 ? (
@@ -248,7 +322,7 @@ export function Popup() {
                       aria-label={`Open ${item.entry.name}`}
                       title={`Open ${item.entry.name}`}
                       onClick={() =>
-                        void openScreenshotInEditor(item.entry.id, showToast)
+                        void openScreenshotInEditor(item.entry, showToast)
                       }
                     >
                       {item.thumbnailUrl ? (
@@ -256,6 +330,9 @@ export function Popup() {
                       ) : (
                         <ImageIcon size={16} />
                       )}
+                      {item.entry.kind === "video" ? (
+                        <span className="sd-recent__play" aria-hidden="true" />
+                      ) : null}
                     </button>
                   ))}
                 </div>

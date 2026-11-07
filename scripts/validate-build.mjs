@@ -93,6 +93,15 @@ async function main() {
     fail("dist/src/editor/editor.html is missing (editor tab would not open).");
   }
 
+  for (const [label, relativePath] of [
+    ["video editor", ["src", "video", "video.html"]],
+    ["recorder", ["src", "recorder", "recorder.html"]],
+  ]) {
+    if (!(await exists(path.join(dist, ...relativePath)))) {
+      fail(`dist/${relativePath.join("/")} is missing (${label} page).`);
+    }
+  }
+
   // --- Icons --------------------------------------------------------------
   const iconSizes = ["16", "48", "128"];
   for (const size of iconSizes) {
@@ -109,19 +118,19 @@ async function main() {
 
   // --- Permissions --------------------------------------------------------
   const permissions = manifest.permissions ?? [];
-  const allowed = new Set(["activeTab", "clipboardWrite"]);
+  const allowed = new Set(["activeTab", "clipboardWrite", "tabCapture"]);
   for (const permission of permissions) {
     if (!allowed.has(permission)) {
       fail(`Unexpected permission "${permission}" – keep the permission set minimal.`);
     }
   }
   if (Array.isArray(manifest.host_permissions) && manifest.host_permissions.length > 0) {
-    fail("host_permissions must stay empty – capture uses activeTab only.");
+    fail("host_permissions must stay empty – capture/recording use activeTab + tabCapture only.");
   }
   if (manifest.content_scripts) {
     fail("content_scripts are not needed for SnapDraw v1.");
   }
-  for (const required of ["activeTab", "clipboardWrite"]) {
+  for (const required of ["activeTab", "clipboardWrite", "tabCapture"]) {
     if (!permissions.includes(required)) {
       fail(`Missing permission "${required}".`);
     }

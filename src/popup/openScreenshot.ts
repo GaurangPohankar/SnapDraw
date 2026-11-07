@@ -1,14 +1,21 @@
-import { buildEditorUrl, isExtensionContext } from "../utils/messaging";
+import type { CaptureKind } from "../types";
+import { buildEditorUrl, buildVideoEditorUrl, isExtensionContext } from "../utils/messaging";
 import type { ShowToastInput } from "../components/Toast";
 
+/** Minimal shape needed to reopen a capture (image or video). */
+export interface OpenableCapture {
+  id: string;
+  kind?: CaptureKind;
+}
+
 /**
- * Opens a saved capture in the editor tab and closes the popup.
+ * Opens a saved capture in the matching editor tab and closes the popup.
  *
- * Shared by the history view and the recent-screenshots preview so both behave
+ * Shared by the history view and the recent-captures preview so both behave
  * identically (and both explain the failure if Chrome refuses to open a tab).
  */
 export async function openScreenshotInEditor(
-  sessionId: string,
+  capture: OpenableCapture,
   showToast: (toast: ShowToastInput) => string,
 ): Promise<void> {
   if (!isExtensionContext()) {
@@ -21,12 +28,16 @@ export async function openScreenshotInEditor(
   }
 
   try {
-    await chrome.tabs.create({ url: buildEditorUrl(sessionId), active: true });
+    const url =
+      capture.kind === "video"
+        ? buildVideoEditorUrl(capture.id)
+        : buildEditorUrl(capture.id);
+    await chrome.tabs.create({ url, active: true });
     window.close();
   } catch (error) {
     showToast({
       tone: "error",
-      title: "Couldn't open the screenshot",
+      title: "Couldn't open the capture",
       description: error instanceof Error ? error.message : "Please try again.",
     });
   }
