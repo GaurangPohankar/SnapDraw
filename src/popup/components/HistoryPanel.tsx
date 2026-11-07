@@ -8,7 +8,7 @@ import {
   HISTORY_LIMIT,
   listScreenshots,
 } from "../../services/storage.service";
-import { buildEditorUrl, isExtensionContext } from "../../utils/messaging";
+import { openScreenshotInEditor } from "../openScreenshot";
 import { ChevronLeftIcon, ImageIcon, TrashIcon } from "./icons";
 
 interface HistoryRow {
@@ -99,26 +99,7 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
 
   const handleOpen = useCallback(
     async (row: HistoryRow): Promise<void> => {
-      if (!isExtensionContext()) {
-        showToast({
-          tone: "info",
-          title: "History is available in the extension",
-          description: "Load SnapDraw from chrome://extensions to open a capture.",
-        });
-        return;
-      }
-
-      try {
-        await chrome.tabs.create({ url: buildEditorUrl(row.entry.id), active: true });
-        window.close();
-      } catch (error) {
-        showToast({
-          tone: "error",
-          title: "Couldn't open the screenshot",
-          description:
-            error instanceof Error ? error.message : "Please try again.",
-        });
-      }
+      await openScreenshotInEditor(row.entry.id, showToast);
     },
     [showToast],
   );

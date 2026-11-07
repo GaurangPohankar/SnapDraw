@@ -25,6 +25,11 @@ the annotations and every asset live on your machine.
 *Screenshot history: captures are saved locally with a thumbnail and can be reopened, deleted or
 cleared. Refreshing an editor tab keeps its screenshot.*
 
+![Recent screenshots preview in the popup](docs/screenshots/popup-recent.png)
+
+*The capture view also shows a compact preview of the most recent captures — click a thumbnail to
+reopen it, or **View all** for the full history.*
+
 ---
 
 ## Table of contents
@@ -66,7 +71,9 @@ cleared. Refreshing an editor tab keeps its screenshot.*
 - **Multi-capture safe** – every capture gets a UUID session; several editor tabs never mix data.
 - **Saved history + refresh-safe editor** – captures are kept in local IndexedDB, so reloading the
   editor tab keeps the screenshot, and the popup's **Screenshot history** lists every saved capture
-  (newest first, with thumbnails) to reopen, delete or clear. Up to 20 are kept for 30 days.
+  (newest first, with thumbnails) to reopen, delete or clear. The capture view also shows a compact
+  **recent-captures preview** (up to three thumbnails, click to reopen) with a **View all** link.
+  Up to 20 captures are kept for 30 days.
 - **Light & dark** – follows the OS colour scheme; the exported PNG is always light/white.
 - **Friendly failures** – restricted pages (`chrome://`, Web Store, other extensions, DevTools) get
   an explanation and a retry path instead of a cryptic Chrome error.
@@ -151,9 +158,10 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
 6. The **SnapDraw menu** (top-left) has *Find on canvas*, *Clear annotations*, *Screenshot history*,
    *SnapDraw on GitHub* and *About SnapDraw*. **Reset view** and the **screenshot lock** live in the
    header next to undo/redo; **Copy Image** and **Download** are on the right.
-7. Reopen the popup → **Screenshot history** to see every saved capture (newest first), reopen one in
-   the editor, delete a single entry, or **Clear all**. Refreshing an editor tab keeps its screenshot,
-   and captures survive browser restarts until they age out of the history (30 days / 20 newest).
+7. Reopen the popup to see the **saved history**: the capture view shows a compact **Recent** strip
+   (click a thumbnail to reopen that capture), and **View all · N** opens the full history (reopen,
+   delete one, or **Clear all**). Refreshing an editor tab keeps its screenshot, and captures survive
+   browser restarts until they age out of the history (30 days / 20 newest).
 
 The pointer is the selection tool. Keyboard shortcuts from Excalidraw apply (`1`–`8` / `r`, `o`,
 `a`, `t`, `l`, `p`, `d`, `z` for tools; `Ctrl/⌘+Z`, `Shift+Ctrl/⌘+Z` for undo/redo; space-drag to pan).
@@ -208,7 +216,7 @@ snapdraw/
 
 | Component | Responsibility |
 | --- | --- |
-| **Popup** (`src/popup/`) | Renders the capture action, live shortcut hint, local-only trust copy, inline error states and the **Screenshot history** view (thumbnails, reopen, delete, clear). Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
+| **Popup** (`src/popup/`) | Renders the capture action, live shortcut hint, local-only trust copy, inline error states, a compact **Recent** thumbnail preview and the full **Screenshot history** view (reopen, delete, clear). Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
 | **Service worker** (`src/background/`) | Resolves the active tab, rejects restricted pages, captures the viewport, stores the screenshot + thumbnail, opens the editor tab, and handles the keyboard command. When a keyboard capture fails there is no popup to show the error, so the worker flags the toolbar icon (`!` badge + tooltip) and opens a short explanation tab. |
 | **Screenshot service** (`src/services/screenshot.service.ts`) | The capture pipeline itself (including thumbnail generation and history pruning); pure helpers (`classifyTabUrl`, `buildScreenshotName`, `toErrorPayload`) are unit-tested. |
 | **Editor** (`src/editor/`) | Loads the capture from IndexedDB, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu and loading/error screens. Refresh-safe: the stored capture is not deleted. |
@@ -320,7 +328,7 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (81 checks, all driven through real input events and real downloads):
+It verifies (86 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, shortcut hint, local-only copy, version, dash-free tagline and the
@@ -343,6 +351,8 @@ It verifies (81 checks, all driven through real input events and real downloads)
   editor intact;
 - the popup's **Screenshot history** lists both captures newest-first with rendered thumbnails, reopens
   the selected capture in the editor, deletes one entry, and clears the rest (emptying IndexedDB);
+- the capture view's **recent-captures preview** shows the saved thumbnails, links to the full history
+  and opens the newest capture when clicked;
 - extension pages produce the friendly restricted-page error with retry; missing/expired sessions and
   `?error=` messages show recoverable error screens;
 - light + dark editor screenshots are written to `docs/screenshots/`.
