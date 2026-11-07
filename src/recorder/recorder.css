@@ -1,0 +1,163 @@
+/* ==========================================================================
+   SnapDraw recorder tab
+   Minimal local recording UI: status, timer, stop/cancel.
+   ========================================================================== */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--sd-bg);
+}
+
+.sd-recorder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 26px;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: 32px 24px;
+  background:
+    radial-gradient(900px 420px at 50% -10%, var(--sd-brand-softer), transparent 70%),
+    var(--sd-bg);
+}
+
+.sd-recorder__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sd-recorder__badge {
+  padding: 2px 9px;
+  border-radius: var(--sd-radius-full);
+  background: var(--sd-brand-soft);
+  color: var(--sd-brand-strong);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.sd-recorder__main {
+  width: min(520px, 100%);
+}
+
+.sd-recorder__card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 30px 28px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-lg);
+  background: var(--sd-bg-elevated);
+  box-shadow: var(--sd-shadow-md);
+  text-align: center;
+}
+
+.sd-recorder__card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--sd-danger-soft);
+  color: var(--sd-danger);
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.sd-recorder__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--sd-text);
+}
+
+.sd-recorder__status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.sd-recorder__dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--sd-text-muted);
+  flex: 0 0 auto;
+}
+
+.sd-recorder__dot--live {
+  background: var(--sd-danger);
+  animation: sd-recorder-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes sd-recorder-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.45);
+    opacity: 1;
+  }
+  60% {
+    box-shadow: 0 0 0 7px rgba(239, 68, 68, 0);
+    opacity: 0.75;
+  }
+}
+
+.sd-recorder__status-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sd-text-secondary);
+}
+
+.sd-recorder__timer {
+  font-family: var(--sd-font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--sd-text);
+}
+
+.sd-recorder__text {
+  max-width: 420px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--sd-text-secondary);
+}
+
+.sd-recorder__hint {
+  max-width: 420px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--sd-text-muted);
+}
+
+.sd-recorder__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.sd-recorder__footer {
+  font-size: 11.5px;
+  color: var(--sd-text-muted);
+}

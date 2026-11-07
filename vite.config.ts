@@ -37,6 +37,8 @@ export default defineConfig(({ mode }) => {
         input: {
           popup: "src/popup/popup.html",
           editor: "src/editor/editor.html",
+          video: "src/video/video.html",
+          recorder: "src/recorder/recorder.html",
           background: "src/background/service-worker.ts",
         },
         output: {

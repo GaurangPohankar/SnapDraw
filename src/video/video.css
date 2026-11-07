@@ -1,0 +1,366 @@
+/* ==========================================================================
+   SnapDraw video editor
+   Full-viewport layout: header, video stage (video + transparent Excalidraw
+   overlay), custom transport bar. Tokens come from styles/global.css; the
+   shared header/screen styles come from editor/editor.css (imported first).
+   ========================================================================== */
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  overflow: hidden;
+  background: var(--sd-bg);
+}
+
+/* --------------------------------------------------------------------------
+   Shell
+   -------------------------------------------------------------------------- */
+
+.sd-video {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--sd-bg);
+}
+
+.sd-video__main {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* --------------------------------------------------------------------------
+   Stage: the video plus the annotation layer that tracks its displayed rect
+   -------------------------------------------------------------------------- */
+
+.sd-video__stage {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(
+      1200px 600px at 50% -10%,
+      var(--sd-brand-softer),
+      transparent 72%
+    ),
+    var(--sd-surface-2);
+}
+
+.sd-video__player {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: transparent;
+  /* The custom transport bar owns playback; the overlay receives drawing. */
+  pointer-events: none;
+}
+
+.sd-video__overlay {
+  position: absolute;
+  z-index: 2;
+  overflow: visible;
+  background: transparent;
+}
+
+/* Excalidraw's root must exactly fill the rendered video rectangle. */
+.sd-video__overlay > .excalidraw,
+.sd-video__stage .excalidraw {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+}
+
+/* Both Excalidraw canvases stay clear so the recording shows through. */
+.sd-video__overlay .excalidraw__canvas {
+  background: transparent !important;
+}
+
+/*
+ * Dark mode inverts Excalidraw's canvases with a CSS filter. The frame/video
+ * export reads raw canvas pixels (CSS filters are not part of the bitmap), so
+ * the filter is switched off on the overlay: what the user sees over the video
+ * is exactly what gets exported.
+ */
+.sd-video__overlay .excalidraw.theme--dark canvas {
+  filter: none !important;
+}
+
+/*
+ * Excalidraw's welcome screen would cover the recording until the first
+ * annotation exists; SnapDraw has its own hint in the transport bar.
+ */
+.sd-video__overlay .welcome-screen-center,
+.sd-video__overlay .welcome-screen-decor,
+.sd-video__overlay .welcome-screen-decor-hint,
+.sd-video__overlay .welcome-screen-menu {
+  display: none !important;
+}
+
+/* --------------------------------------------------------------------------
+   Header additions (the rest reuses editor.css)
+   -------------------------------------------------------------------------- */
+
+.sd-video__header {
+  z-index: 30;
+}
+
+.sd-video__menu-wrap {
+  position: relative;
+  display: flex;
+}
+
+.sd-video__menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 236px;
+  padding: 6px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-md);
+  background: var(--sd-bg-elevated);
+  box-shadow: var(--sd-shadow-lg);
+  animation: sd-fade-in 120ms var(--sd-ease);
+}
+
+.sd-video__menu-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--sd-radius-sm);
+  background: transparent;
+  color: var(--sd-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--sd-duration-fast) var(--sd-ease);
+}
+
+.sd-video__menu-item:hover:not(:disabled) {
+  background: var(--sd-surface-2);
+}
+
+.sd-video__menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.sd-video__menu-item svg {
+  flex: 0 0 auto;
+  color: var(--sd-text-muted);
+}
+
+.sd-video__menu-divider {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--sd-border);
+}
+
+/* --------------------------------------------------------------------------
+   Transport bar
+   -------------------------------------------------------------------------- */
+
+.sd-video__transport {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 0 0 auto;
+  height: 54px;
+  padding: 0 16px;
+  border-top: 1px solid var(--sd-border);
+  background: var(--sd-bg-elevated);
+  box-shadow: 0 -1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.sd-video__transport-play {
+  color: var(--sd-brand);
+}
+
+.sd-video__transport-play:hover:not(:disabled) {
+  color: var(--sd-brand-strong);
+}
+
+.sd-video__time {
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--sd-text-muted);
+  white-space: nowrap;
+}
+
+.sd-video__seek {
+  flex: 1 1 auto;
+  min-width: 90px;
+  height: 4px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  border-radius: var(--sd-radius-full);
+  background: var(--sd-surface-3);
+  cursor: pointer;
+  accent-color: var(--sd-brand);
+}
+
+.sd-video__seek::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--sd-bg-elevated);
+  border-radius: 50%;
+  background: var(--sd-brand);
+  box-shadow: var(--sd-shadow-sm);
+  cursor: pointer;
+}
+
+.sd-video__seek::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--sd-bg-elevated);
+  border-radius: 50%;
+  background: var(--sd-brand);
+  cursor: pointer;
+}
+
+.sd-video__seek:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.sd-video__hint {
+  flex: 0 0 auto;
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--sd-text-muted);
+  white-space: nowrap;
+}
+
+/* Toasts sit above the transport bar instead of on top of it. */
+.sd-video .sd-toast-viewport--bottom-left {
+  bottom: 70px;
+}
+
+/* --------------------------------------------------------------------------
+   "Rendering annotated video" overlay
+   -------------------------------------------------------------------------- */
+
+.sd-video__progress {
+  position: absolute;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(3px);
+  animation: sd-fade-in 140ms var(--sd-ease);
+}
+
+.sd-video__progress-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  width: min(420px, 100%);
+  padding: 26px 24px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-lg);
+  background: var(--sd-bg-elevated);
+  box-shadow: var(--sd-shadow-lg);
+  text-align: center;
+}
+
+.sd-video__progress-spinner {
+  width: 30px;
+  height: 30px;
+  border: 3px solid var(--sd-brand-soft);
+  border-top-color: var(--sd-brand);
+  border-radius: 50%;
+  animation: sd-spin 780ms linear infinite;
+}
+
+.sd-video__progress-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--sd-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.sd-video__progress-text {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--sd-text-muted);
+}
+
+.sd-video__progress-track {
+  width: 100%;
+  height: 6px;
+  overflow: hidden;
+  border-radius: var(--sd-radius-full);
+  background: var(--sd-surface-3);
+}
+
+.sd-video__progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(135deg, var(--sd-brand), var(--sd-accent));
+  transition: width 140ms linear;
+}
+
+/* --------------------------------------------------------------------------
+   Responsive tweaks
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1080px) {
+  .sd-video__hint {
+    display: none;
+  }
+}
+
+@media (max-width: 900px) {
+  .sd-video__time {
+    display: none;
+  }
+
+  .sd-video__transport {
+    gap: 8px;
+    padding: 0 10px;
+  }
+}
+
+@media (max-height: 560px) {
+  .sd-video__transport {
+    height: 46px;
+  }
+}

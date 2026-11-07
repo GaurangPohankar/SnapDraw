@@ -52,6 +52,17 @@ export function CameraIcon(props: IconProps) {
   );
 }
 
+/** Video camera mark used by the "Record video" action. */
+export function VideoIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="2.8" y="6.6" width="12.4" height="10.8" rx="2.4" />
+      <path d="m15.2 10.4 4.1-2.3a.9.9 0 0 1 1.4.8v6.2a.9.9 0 0 1-1.4.8l-4.1-2.3" />
+      <circle cx="6.6" cy="9.3" r="1.15" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
 /** Check mark shown once the editor tab has opened. */
 export function CheckIcon(props: IconProps) {
   return (
