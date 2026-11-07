@@ -1607,6 +1607,90 @@ async function main() {
         return { popup, buttonText };
       };
 
+      // The capture view shows a compact preview of the most recent captures.
+      const previewPopup = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
+        width: 340,
+        height: 640,
+      });
+      await setColorScheme(browser, previewPopup.sessionId, "light");
+      await waitForSelector(browser, previewPopup.sessionId, ".sd-recent");
+      const preview = await browser.evaluate(
+        previewPopup.sessionId,
+        `(() => {
+          const thumbs = Array.from(document.querySelectorAll(".sd-recent__thumb"));
+          return {
+            count: thumbs.length,
+            names: thumbs.map((thumb) => thumb.getAttribute("aria-label") ?? ""),
+            loaded: thumbs.map((thumb) => {
+              const image = thumb.querySelector("img");
+              return Boolean(image && image.complete && image.naturalWidth > 0);
+            }),
+            viewAll: document.querySelector(".sd-recent__all")?.textContent?.trim() ?? "",
+          };
+        })()`,
+      );
+      check("popup shows a recent-history preview", preview.count === 2, `thumbs=${preview.count}`);
+      check(
+        "recent preview thumbnails render from local storage",
+        preview.loaded.every(Boolean),
+        JSON.stringify(preview.loaded),
+      );
+      check(
+        "recent preview links to the full history",
+        /View all\s*·\s*2/.test(preview.viewAll),
+        preview.viewAll,
+      );
+
+      const recentShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        previewPopup.sessionId,
+      );
+      await writeFile(
+        path.join(screenshotsDir, "popup-recent.png"),
+        Buffer.from(recentShot.data, "base64"),
+      );
+      check(
+        "recent preview screenshot saved",
+        existsSync(path.join(screenshotsDir, "popup-recent.png")),
+      );
+
+      // Clicking a preview opens that capture directly (newest first).
+      const previewTargets = new Set();
+      for (const info of browser.targets.values()) {
+        if (info.type === "page") previewTargets.add(info.targetId);
+      }
+      await browser.evaluate(
+        previewPopup.sessionId,
+        `document.querySelector(".sd-recent__thumb")?.click(); true`,
+      );
+      const fromPreview = await waitFor(
+        async () => {
+          for (const info of browser.targets.values()) {
+            if (info.type !== "page" || previewTargets.has(info.targetId)) continue;
+            if (
+              info.url.startsWith(
+                `chrome-extension://${extensionId}/src/editor/editor.html`,
+              )
+            ) {
+              return info;
+            }
+          }
+          return null;
+        },
+        { label: "recent preview opens an editor tab", timeoutMs: 20_000 },
+      );
+      const fromPreviewSession = new URL(fromPreview.url).searchParams.get("session");
+      check(
+        "recent preview opens the newest capture",
+        fromPreviewSession === secondSessionId,
+        `${fromPreviewSession} vs ${secondSessionId}`,
+      );
+      await browser.send("Target.closeTarget", { targetId: fromPreview.targetId });
+      if (browser.targets.has(previewPopup.targetId)) {
+        await browser.send("Target.closeTarget", { targetId: previewPopup.targetId });
+      }
+
       const first = await openHistoryView();
       check(
         "history entry point shows the number of saved captures",

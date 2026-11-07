@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../components/Button";
 import { ToastViewport, useToast } from "../components/Toast";
-import { listScreenshots } from "../services/storage.service";
 import { isExtensionContext } from "../utils/messaging";
 import { ErrorPanel } from "./components/ErrorPanel";
 import { Header } from "./components/Header";
@@ -11,12 +10,15 @@ import {
   CameraIcon,
   CheckIcon,
   ClockIcon,
+  ImageIcon,
   InfoIcon,
   ShieldIcon,
 } from "./components/icons";
+import { openScreenshotInEditor } from "./openScreenshot";
 import { SHORTCUTS_URL } from "./shortcut";
 import { useCapture } from "./useCapture";
 import type { CapturePhase, CaptureStatus } from "./useCapture";
+import { useRecentScreenshots } from "./useRecentScreenshots";
 
 /** Version shown when the popup runs outside the extension (dev preview). */
 const FALLBACK_VERSION = "1.0.0";
@@ -62,24 +64,12 @@ export function Popup() {
   const { status, phase, error, isPreview, capture } = useCapture();
   const { toasts, showToast, dismissToast } = useToast();
   const [view, setView] = useState<PopupView>("capture");
-  const [historyCount, setHistoryCount] = useState<number | null>(null);
+  const {
+    recent,
+    total: historyTotal,
+    refresh: refreshHistory,
+  } = useRecentScreenshots();
   const version = readExtensionVersion();
-
-  const refreshHistoryCount = useCallback(async (): Promise<void> => {
-    if (!isExtensionContext()) {
-      return;
-    }
-    try {
-      const entries = await listScreenshots();
-      setHistoryCount(entries.length);
-    } catch {
-      setHistoryCount(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refreshHistoryCount();
-  }, [refreshHistoryCount]);
 
   const handleCopyResult = useCallback(
     (copied: boolean) => {
@@ -140,12 +130,12 @@ export function Popup() {
 
   const openHistory = (): void => {
     setView("history");
-    void refreshHistoryCount();
+    void refreshHistory();
   };
 
   const closeHistory = (): void => {
     setView("capture");
-    void refreshHistoryCount();
+    void refreshHistory();
   };
 
   return (
@@ -155,7 +145,7 @@ export function Popup() {
       {view === "history" ? (
         <HistoryPanel
           onBack={closeHistory}
-          onChanged={() => void refreshHistoryCount()}
+          onChanged={() => void refreshHistory()}
           showToast={showToast}
         />
       ) : (
@@ -224,18 +214,53 @@ export function Popup() {
 
             <ShortcutRow onCopyResult={handleCopyResult} />
 
-            <Button
-              variant="secondary"
-              size="sm"
-              fullWidth
-              leadingIcon={<ClockIcon size={16} />}
-              aria-label="Open screenshot history"
-              onClick={openHistory}
-            >
-              {historyCount === null || historyCount === 0
-                ? "Screenshot history"
-                : `Screenshot history · ${historyCount}`}
-            </Button>
+            {historyTotal === 0 ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                fullWidth
+                leadingIcon={<ClockIcon size={16} />}
+                aria-label="Open screenshot history"
+                onClick={openHistory}
+              >
+                Screenshot history
+              </Button>
+            ) : (
+              <section className="sd-recent" aria-label="Recent screenshots">
+                <div className="sd-recent__header">
+                  <span className="sd-recent__title">Recent</span>
+                  <button
+                    type="button"
+                    className="sd-recent__all"
+                    aria-label="Open screenshot history"
+                    onClick={openHistory}
+                  >
+                    View all · {historyTotal}
+                  </button>
+                </div>
+
+                <div className="sd-recent__strip">
+                  {recent.map((item) => (
+                    <button
+                      key={item.entry.id}
+                      type="button"
+                      className="sd-recent__thumb"
+                      aria-label={`Open ${item.entry.name}`}
+                      title={`Open ${item.entry.name}`}
+                      onClick={() =>
+                        void openScreenshotInEditor(item.entry.id, showToast)
+                      }
+                    >
+                      {item.thumbnailUrl ? (
+                        <img src={item.thumbnailUrl} alt="" />
+                      ) : (
+                        <ImageIcon size={16} />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            )}
 
             <p className="sd-popup__trust">
               <ShieldIcon size={14} />
