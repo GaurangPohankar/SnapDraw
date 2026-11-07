@@ -28,6 +28,7 @@ import {
   putScreenshot,
   trimScreenshots,
 } from "./storage.service";
+import { createThumbnail } from "./thumbnail.service";
 
 /**
  * Largest screenshot edge SnapDraw accepts. Chrome never produces a viewport
@@ -35,12 +36,6 @@ import {
  * records.
  */
 export const MAX_CAPTURE_EDGE = 8192;
-
-/**
- * Longest edge of the small preview stored for the history list. 320px keeps
- * the overview readable while costing only a few KB per capture.
- */
-const THUMBNAIL_MAX_EDGE = 320;
 
 /** Why a page cannot be captured. */
 export type RestrictedPageReason =
@@ -437,52 +432,6 @@ function assertSupportedSize(width: number, height: number): void {
       "The captured screenshot is too large for SnapDraw.",
       `Resize the browser window so each side is at most ${MAX_CAPTURE_EDGE}px, then try again.`,
     );
-  }
-}
-
-/**
- * Renders a small PNG preview for the history list.
- *
- * Thumbnails are a nicety: if the canvas APIs are unavailable (or the pixels
- * cannot be read), the capture still succeeds and the history shows a
- * placeholder instead.
- */
-async function createThumbnail(
-  blob: Blob,
-  width: number,
-  height: number,
-): Promise<Blob | undefined> {
-  try {
-    if (
-      typeof OffscreenCanvas === "undefined" ||
-      typeof createImageBitmap !== "function"
-    ) {
-      return undefined;
-    }
-
-    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
-    const thumbnailWidth = Math.max(1, Math.round(width * scale));
-    const thumbnailHeight = Math.max(1, Math.round(height * scale));
-
-    const bitmap = await createImageBitmap(blob);
-    try {
-      const canvas = new OffscreenCanvas(thumbnailWidth, thumbnailHeight);
-      const context = canvas.getContext("2d");
-      if (!context) {
-        return undefined;
-      }
-      context.drawImage(bitmap, 0, 0, thumbnailWidth, thumbnailHeight);
-      return await canvas.convertToBlob({ type: "image/png" });
-    } finally {
-      if (typeof bitmap.close === "function") {
-        bitmap.close();
-      }
-    }
-  } catch (error) {
-    console.debug(
-      `[SnapDraw] thumbnail generation skipped: ${describeErrorForLog(error)}`,
-    );
-    return undefined;
   }
 }
 

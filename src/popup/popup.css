@@ -777,3 +777,20 @@ body {
   height: 100%;
   object-fit: cover;
 }
+
+/* Keep the preview thumbnails close to a screenshot aspect ratio and anchored
+   to the top, so page headers (the informative part) stay visible instead of
+   being cropped into a flat colour block. */
+.sd-recent__thumb {
+  flex: 0 0 auto;
+  width: 96px;
+  height: 60px;
+}
+
+.sd-recent__thumb img {
+  object-position: top center;
+}
+
+.sd-history__thumb img {
+  object-position: top center;
+}

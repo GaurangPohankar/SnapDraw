@@ -226,7 +226,7 @@ function decodePng(buffer) {
 
 /** Counts magenta / teal / dark pixels in a decoded PNG (subsampled). */
 function analyzeColors(image, stepPx = 2) {
-  const counts = { magenta: 0, teal: 0, dark: 0, white: 0, sampled: 0 };
+  const counts = { magenta: 0, teal: 0, dark: 0, white: 0, yellow: 0, sampled: 0 };
   const { width, height, channels, pixels } = image;
 
   for (let y = 0; y < height; y += stepPx) {
@@ -241,6 +241,7 @@ function analyzeColors(image, stepPx = 2) {
       counts.sampled += 1;
       if (r >= 200 && g <= 90 && b >= 200) counts.magenta += 1;
       else if (r <= 70 && g >= 140 && b >= 110) counts.teal += 1;
+      else if (r > 200 && g > 170 && b < 90) counts.yellow += 1;
       else if (r <= 70 && g <= 70 && b <= 70) counts.dark += 1;
       else if (r >= 240 && g >= 240 && b >= 240) counts.white += 1;
     }
@@ -868,14 +869,17 @@ async function launchChrome(chromePath) {
 /* -------------------------------------------------------------------------- */
 
 const PAGE_FIXTURES = {
+  // The yellow band gives thumbnails/exports recognisable, non-uniform content.
   "/magenta": `<!doctype html>
 <html><head><meta charset="utf-8"><title>SnapDraw E2E – magenta</title>
-<style>html,body{margin:0;height:100%;background:#ff00ff;overflow:hidden}</style></head>
-<body><div style="height:100vh"></div></body></html>`,
+<style>html,body{margin:0;height:100%;background:#ff00ff;overflow:hidden}
+.band{height:22vh;background:#ffcc00}</style></head>
+<body><div class="band"></div><div style="height:78vh"></div></body></html>`,
   "/teal": `<!doctype html>
 <html><head><meta charset="utf-8"><title>SnapDraw E2E – teal</title>
-<style>html,body{margin:0;height:100%;background:#00c2a8;overflow:hidden}</style></head>
-<body><div style="height:100vh"></div></body></html>`,
+<style>html,body{margin:0;height:100%;background:#00c2a8;overflow:hidden}
+.band{height:22vh;background:#ffcc00}</style></head>
+<body><div class="band"></div><div style="height:78vh"></div></body></html>`,
 };
 
 function startFixtureServer() {
@@ -1635,6 +1639,37 @@ async function main() {
         preview.loaded.every(Boolean),
         JSON.stringify(preview.loaded),
       );
+
+      // Decode the first thumbnail to prove it contains the actual screenshot
+      // (the fixture has a yellow band), not a blank/solid placeholder.
+      const thumbnailContent = await browser.evaluate(
+        previewPopup.sessionId,
+        `(async () => {
+          const image = document.querySelector(".sd-recent__thumb img");
+          if (!image || !image.naturalWidth) return null;
+          const canvas = document.createElement("canvas");
+          canvas.width = image.naturalWidth;
+          canvas.height = image.naturalHeight;
+          const context = canvas.getContext("2d");
+          context.drawImage(image, 0, 0);
+          const data = context.getImageData(0, 0, canvas.width, canvas.height).data;
+          let yellow = 0;
+          for (let index = 0; index < data.length; index += 16) {
+            const r = data[index];
+            const g = data[index + 1];
+            const b = data[index + 2];
+            if (r > 200 && g > 170 && b < 90) yellow += 1;
+          }
+          return { width: image.naturalWidth, height: image.naturalHeight, yellow };
+        })()`,
+      );
+      check(
+        "preview thumbnail shows the captured content",
+        Boolean(thumbnailContent) &&
+          thumbnailContent.width > 0 &&
+          thumbnailContent.yellow > 0,
+        JSON.stringify(thumbnailContent),
+      );
       check(
         "recent preview links to the full history",
         /View all\s*·\s*2/.test(preview.viewAll),
@@ -1653,6 +1688,15 @@ async function main() {
       check(
         "recent preview screenshot saved",
         existsSync(path.join(screenshotsDir, "popup-recent.png")),
+      );
+
+      const recentColors = analyzeColors(
+        decodePng(Buffer.from(recentShot.data, "base64")),
+      );
+      check(
+        "recent preview visibly shows the captured page content",
+        recentColors.yellow > 20,
+        `yellow=${recentColors.yellow}`,
       );
 
       // Clicking a preview opens that capture directly (newest first).
@@ -1835,6 +1879,93 @@ async function main() {
         "clearing the history removes the stored captures",
         remainingAfterClear === 0,
         `records=${remainingAfterClear}`,
+      );
+
+      // A capture saved by an older build has no thumbnail. The preview must
+      // generate and persist one instead of showing a placeholder forever.
+      const seeded = await browser.evaluate(
+        second.popup.sessionId,
+        `(async () => {
+          const request = indexedDB.open("snapdraw");
+          const database = await new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const canvas = document.createElement("canvas");
+          canvas.width = 400;
+          canvas.height = 300;
+          const context = canvas.getContext("2d");
+          context.fillStyle = "#f97316";
+          context.fillRect(0, 0, 400, 300);
+          const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+          const record = {
+            id: "legacy-session",
+            name: "Legacy capture",
+            createdAt: Date.now() - 10_000,
+            width: 400,
+            height: 300,
+            mimeType: "image/png",
+            size: blob.size,
+            blob,
+          };
+          const transaction = database.transaction("screenshots", "readwrite");
+          transaction.objectStore("screenshots").put(record);
+          await new Promise((resolve, reject) => {
+            transaction.oncomplete = resolve;
+            transaction.onerror = () => reject(transaction.error);
+          });
+          return { size: blob.size };
+        })()`,
+      );
+      check("legacy capture without a thumbnail was seeded", seeded.size > 0, JSON.stringify(seeded));
+
+      await browser.evaluate(
+        second.popup.sessionId,
+        `document.querySelector(".sd-history__back")?.click(); true`,
+      );
+      await waitForSelector(browser, second.popup.sessionId, ".sd-recent");
+      const healed = await waitFor(
+        async () =>
+          browser.evaluate(
+            second.popup.sessionId,
+            `(() => {
+              const thumb = document.querySelector(".sd-recent__thumb");
+              const image = thumb?.querySelector("img");
+              return image && image.complete && image.naturalWidth > 0
+                ? { loaded: true }
+                : null;
+            })()`,
+          ),
+        { label: "legacy thumbnail backfill", timeoutMs: 20_000 },
+      );
+      check("legacy capture gets a real thumbnail in the preview", healed.loaded === true);
+
+      const persistedThumbnail = await browser.evaluate(
+        second.popup.sessionId,
+        `(async () => {
+          const request = indexedDB.open("snapdraw");
+          const database = await new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result);
+            request.onerror = () => reject(request.error);
+          });
+          const record = await new Promise((resolve, reject) => {
+            const get = database
+              .transaction("screenshots", "readonly")
+              .objectStore("screenshots")
+              .get("legacy-session");
+            get.onsuccess = () => resolve(get.result);
+            get.onerror = () => reject(get.error);
+          });
+          return {
+            hasThumbnail: record?.thumbnail instanceof Blob,
+            thumbnailSize: record?.thumbnail?.size ?? 0,
+          };
+        })()`,
+      );
+      check(
+        "backfilled thumbnail is persisted for later popup opens",
+        persistedThumbnail.hasThumbnail === true && persistedThumbnail.thumbnailSize > 0,
+        JSON.stringify(persistedThumbnail),
       );
 
       await browser.send("Target.closeTarget", { targetId: second.popup.targetId });
