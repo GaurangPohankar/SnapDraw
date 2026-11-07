@@ -14,8 +14,8 @@ import {
   purgeExpiredSessions,
   toErrorPayload,
 } from "../src/services/screenshot.service";
-import { getScreenshot, putScreenshot } from "../src/services/storage.service";
-import { SESSION_TTL_MS, SnapDrawError } from "../src/utils/messaging";
+import { getScreenshot, putScreenshot, HISTORY_RETENTION_MS } from "../src/services/storage.service";
+import { SnapDrawError } from "../src/utils/messaging";
 
 const EXTENSION_ID = "abcdefghijklmnopabcdefghijklmnop";
 
@@ -416,11 +416,11 @@ describe("captureVisibleViewport", () => {
     expect(stored!.sourceTitle).toBe("Example");
   });
 
-  it("purges stale sessions and reports the count", async () => {
+  it("prunes captures older than the history retention window", async () => {
     await putScreenshot({
       id: "stale-session",
       name: "Stale capture",
-      createdAt: Date.now() - SESSION_TTL_MS - 5_000,
+      createdAt: Date.now() - HISTORY_RETENTION_MS - 5_000,
       width: 10,
       height: 10,
       mimeType: "image/png",

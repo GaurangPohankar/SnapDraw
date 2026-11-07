@@ -122,3 +122,57 @@ export function RetryIcon(props: IconProps) {
     </IconBase>
   );
 }
+
+/** Clock mark for the screenshot history entry point. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.4V12l3 1.9" />
+    </IconBase>
+  );
+}
+
+/** Back arrow for the history view. */
+export function ChevronLeftIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M14.5 5.5 8 12l6.5 6.5" />
+    </IconBase>
+  );
+}
+
+/** Trash mark used to delete a single history entry or clear the history. */
+export function TrashIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4.6 6.6h14.8" />
+      <path d="M9.4 6.6V4.9a1.3 1.3 0 0 1 1.3-1.3h2.6a1.3 1.3 0 0 1 1.3 1.3v1.7" />
+      <path d="m6.6 6.6.8 12.1a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.8-12.1" />
+      <path d="M10.2 10.8v5.4M13.8 10.8v5.4" />
+    </IconBase>
+  );
+}
+
+/** Image placeholder for history entries without a stored thumbnail. */
+export function ImageIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="3.4" y="4.8" width="17.2" height="14.4" rx="2.3" />
+      <circle cx="8.5" cy="9.6" r="1.5" />
+      <path d="m5 17.4 4.6-4.6a1.6 1.6 0 0 1 2.3 0l4.2 4.2" />
+      <path d="m13.4 14.2 1.7-1.7a1.6 1.6 0 0 1 2.3 0l3.1 3.1" />
+    </IconBase>
+  );
+}
+
+/** External-link mark for links that leave the popup (history/about). */
+export function ExternalLinkIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M10.5 5.2H6.2A2.2 2.2 0 0 0 4 7.4v10.4A2.2 2.2 0 0 0 6.2 20h10.4a2.2 2.2 0 0 0 2.2-2.2v-4.3" />
+      <path d="M14.4 4h5.6v5.6" />
+      <path d="m19.4 4.6-7.2 7.2" />
+    </IconBase>
+  );
+}

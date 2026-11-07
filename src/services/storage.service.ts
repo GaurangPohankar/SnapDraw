@@ -5,16 +5,28 @@
  * through IndexedDB (same extension origin, shared by the worker and all
  * extension pages). Nothing is ever uploaded.
  *
- * The blob is stored as a real `Blob` (structured clone) instead of base64 so
- * multi-megabyte screenshots survive the transfer without ~33% inflation.
+ * Records are kept as a small local history instead of being deleted when the
+ * editor opens them, so refreshing the editor tab (or reopening a capture from
+ * history) keeps working. The blob is stored as a real `Blob` (structured clone)
+ * instead of base64 so multi-megabyte screenshots don't inflate by ~33%.
  */
-import type { ScreenshotMeta, ScreenshotRecord } from "../types";
-import { SESSION_TTL_MS } from "../utils/messaging";
+import type {
+  ScreenshotHistoryEntry,
+  ScreenshotRecord,
+} from "../types";
 
 const DATABASE_NAME = "snapdraw";
 const DATABASE_VERSION = 1;
 const SCREENSHOTS_STORE = "screenshots";
 const CREATED_AT_INDEX = "createdAt";
+
+/**
+ * How many captures the local history keeps. Older entries (and anything older
+ * than `HISTORY_RETENTION_MS`) are pruned automatically so the extension can
+ * never grow unbounded.
+ */
+export const HISTORY_LIMIT = 20;
+export const HISTORY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 
 let databasePromise: Promise<IDBDatabase> | null = null;
 
@@ -100,7 +112,7 @@ export async function getScreenshot(
   return record;
 }
 
-/** Deletes a capture once the editor has it in memory. */
+/** Deletes one capture (used by the history list). */
 export async function deleteScreenshot(id: string): Promise<void> {
   const database = await openDatabase();
   const transaction = database.transaction(SCREENSHOTS_STORE, "readwrite");
@@ -108,8 +120,11 @@ export async function deleteScreenshot(id: string): Promise<void> {
   await transactionDone(transaction);
 }
 
-/** Lists metadata (without blobs) ordered by creation time, newest first. */
-export async function listScreenshots(): Promise<ScreenshotMeta[]> {
+/**
+ * Lists the saved captures, newest first. Includes the small thumbnail preview
+ * but never the full screenshot blob, so the history list stays cheap.
+ */
+export async function listScreenshots(): Promise<ScreenshotHistoryEntry[]> {
   const database = await openDatabase();
   const transaction = database.transaction(SCREENSHOTS_STORE, "readonly");
   const request = transaction
@@ -121,19 +136,59 @@ export async function listScreenshots(): Promise<ScreenshotMeta[]> {
 
   return records
     .map((record) => {
-      const { blob: _blob, ...meta } = record;
-      return meta;
+      const { blob: _blob, ...entry } = record;
+      return entry;
     })
     .sort((left, right) => right.createdAt - left.createdAt);
 }
 
 /**
- * Removes orphaned sessions (for example when the editor tab was closed before
- * it could consume the capture, or when Chrome killed the worker mid-flight).
+ * Keeps only the newest `maxEntries` captures (and their blobs). Returns the
+ * number of records removed.
+ */
+export async function trimScreenshots(
+  maxEntries: number = HISTORY_LIMIT,
+): Promise<number> {
+  if (!Number.isFinite(maxEntries) || maxEntries < 1) {
+    return 0;
+  }
+
+  const total = await countScreenshots();
+  const excess = total - maxEntries;
+  if (excess <= 0) {
+    return 0;
+  }
+
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readwrite");
+  const index = transaction.objectStore(SCREENSHOTS_STORE).index(CREATED_AT_INDEX);
+  const keysRequest = index.getAllKeys();
+
+  keysRequest.onsuccess = () => {
+    // The index is ordered oldest → newest; drop the oldest entries.
+    for (const key of keysRequest.result.slice(0, excess)) {
+      transaction.objectStore(SCREENSHOTS_STORE).delete(key);
+    }
+  };
+
+  await transactionDone(transaction);
+  return excess;
+}
+
+/** Removes every saved capture (history "Clear all"). */
+export async function clearScreenshots(): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readwrite");
+  transaction.objectStore(SCREENSHOTS_STORE).clear();
+  await transactionDone(transaction);
+}
+
+/**
+ * Removes captures older than the retention window (30 days by default).
  * Returns the number of records removed.
  */
 export async function purgeExpiredScreenshots(
-  maxAgeMs: number = SESSION_TTL_MS,
+  maxAgeMs: number = HISTORY_RETENTION_MS,
   now: number = Date.now(),
 ): Promise<number> {
   const database = await openDatabase();
