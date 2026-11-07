@@ -1,0 +1,35 @@
+{
+  "name": "snapdraw",
+  "version": "1.0.0",
+  "private": true,
+  "description": "SnapDraw – capture the visible viewport and annotate it instantly with Excalidraw. Local-only.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite build --watch --mode development",
+    "build": "node scripts/copy-fonts.mjs && tsc --noEmit && vite build && node scripts/validate-build.mjs",
+    "build:only": "node scripts/copy-fonts.mjs && vite build && node scripts/validate-build.mjs",
+    "typecheck": "tsc --noEmit",
+    "clean": "node scripts/clean.mjs",
+    "icons": "node scripts/generate-icons.mjs",
+    "test": "vitest run",
+    "test:e2e": "node scripts/e2e.mjs",
+    "verify": "npm run build && npm test && npm run test:e2e",
+    "preview": "vite --mode preview"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "0.18.1",
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.4",
+    "@types/node": "24.10.1",
+    "@types/react": "18.3.27",
+    "@types/react-dom": "18.3.7",
+    "@vitejs/plugin-react": "6.2.1",
+    "fake-indexeddb": "6.2.7",
+    "typescript": "5.9.3",
+    "vite": "8.3.6",
+    "vitest": "5.1.0"
+  }
+}

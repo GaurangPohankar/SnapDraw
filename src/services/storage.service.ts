@@ -1,0 +1,183 @@
+/**
+ * Local-only screenshot storage.
+ *
+ * Captured screenshots are handed from the service worker to the editor tab
+ * through IndexedDB (same extension origin, shared by the worker and all
+ * extension pages). Nothing is ever uploaded.
+ *
+ * The blob is stored as a real `Blob` (structured clone) instead of base64 so
+ * multi-megabyte screenshots survive the transfer without ~33% inflation.
+ */
+import type { ScreenshotMeta, ScreenshotRecord } from "../types";
+import { SESSION_TTL_MS } from "../utils/messaging";
+
+const DATABASE_NAME = "snapdraw";
+const DATABASE_VERSION = 1;
+const SCREENSHOTS_STORE = "screenshots";
+const CREATED_AT_INDEX = "createdAt";
+
+let databasePromise: Promise<IDBDatabase> | null = null;
+
+function openDatabase(): Promise<IDBDatabase> {
+  if (databasePromise) {
+    return databasePromise;
+  }
+
+  databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("Local storage (IndexedDB) is not available."));
+      return;
+    }
+
+    const request = indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
+
+    request.onupgradeneeded = () => {
+      const database = request.result;
+      if (!database.objectStoreNames.contains(SCREENSHOTS_STORE)) {
+        const store = database.createObjectStore(SCREENSHOTS_STORE, {
+          keyPath: "id",
+        });
+        store.createIndex(CREATED_AT_INDEX, "createdAt");
+      }
+    };
+
+    request.onsuccess = () => {
+      const database = request.result;
+      database.onversionchange = () => {
+        database.close();
+        databasePromise = null;
+      };
+      resolve(database);
+    };
+
+    request.onerror = () => {
+      databasePromise = null;
+      reject(request.error ?? new Error("Could not open local storage."));
+    };
+
+    request.onblocked = () => {
+      // Another tab still holds an old version open – it will close itself on
+      // `versionchange`, so we simply keep waiting for `onsuccess`.
+    };
+  });
+
+  return databasePromise;
+}
+
+function requestToPromise<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error("Local storage request failed."));
+  });
+}
+
+function transactionDone(transaction: IDBTransaction): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("Local storage transaction failed."));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Local storage transaction was aborted."));
+  });
+}
+
+/** Persists a capture. Overwrites an existing record with the same id. */
+export async function putScreenshot(record: ScreenshotRecord): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readwrite");
+  transaction.objectStore(SCREENSHOTS_STORE).put(record);
+  await transactionDone(transaction);
+}
+
+/** Reads a capture by session id. Resolves `undefined` when it is gone. */
+export async function getScreenshot(
+  id: string,
+): Promise<ScreenshotRecord | undefined> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readonly");
+  const request = transaction.objectStore(SCREENSHOTS_STORE).get(id);
+  const record = await requestToPromise<ScreenshotRecord | undefined>(request);
+  return record;
+}
+
+/** Deletes a capture once the editor has it in memory. */
+export async function deleteScreenshot(id: string): Promise<void> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readwrite");
+  transaction.objectStore(SCREENSHOTS_STORE).delete(id);
+  await transactionDone(transaction);
+}
+
+/** Lists metadata (without blobs) ordered by creation time, newest first. */
+export async function listScreenshots(): Promise<ScreenshotMeta[]> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readonly");
+  const request = transaction
+    .objectStore(SCREENSHOTS_STORE)
+    .index(CREATED_AT_INDEX)
+    .getAll();
+
+  const records = await requestToPromise<ScreenshotRecord[]>(request);
+
+  return records
+    .map((record) => {
+      const { blob: _blob, ...meta } = record;
+      return meta;
+    })
+    .sort((left, right) => right.createdAt - left.createdAt);
+}
+
+/**
+ * Removes orphaned sessions (for example when the editor tab was closed before
+ * it could consume the capture, or when Chrome killed the worker mid-flight).
+ * Returns the number of records removed.
+ */
+export async function purgeExpiredScreenshots(
+  maxAgeMs: number = SESSION_TTL_MS,
+  now: number = Date.now(),
+): Promise<number> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readwrite");
+  const store = transaction.objectStore(SCREENSHOTS_STORE);
+  const request = store.index(CREATED_AT_INDEX).openCursor();
+  const expiredIds: string[] = [];
+
+  request.onsuccess = () => {
+    const cursor = request.result;
+    if (!cursor) {
+      return;
+    }
+    const record = cursor.value as ScreenshotRecord;
+    if (now - record.createdAt > maxAgeMs) {
+      expiredIds.push(record.id);
+      cursor.delete();
+    }
+    cursor.continue();
+  };
+
+  await transactionDone(transaction);
+  return expiredIds.length;
+}
+
+/** Number of stored screenshots. Handy for diagnostics and tests. */
+export async function countScreenshots(): Promise<number> {
+  const database = await openDatabase();
+  const transaction = database.transaction(SCREENSHOTS_STORE, "readonly");
+  const request = transaction.objectStore(SCREENSHOTS_STORE).count();
+  return requestToPromise(request);
+}
+
+/** Closes the cached connection (used by tests and on service worker teardown). */
+export async function closeDatabase(): Promise<void> {
+  if (!databasePromise) {
+    return;
+  }
+  try {
+    const database = await databasePromise;
+    database.close();
+  } catch {
+    // Nothing to close when opening failed.
+  } finally {
+    databasePromise = null;
+  }
+}

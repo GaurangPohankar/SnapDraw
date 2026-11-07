@@ -1,0 +1,43 @@
+{
+  "manifest_version": 3,
+  "name": "SnapDraw",
+  "short_name": "SnapDraw",
+  "version": "1.0.0",
+  "description": "Capture your visible screen and annotate it instantly with Excalidraw. Stored locally, no account, no server.",
+  "minimum_chrome_version": "116",
+  "action": {
+    "default_title": "SnapDraw – capture & annotate",
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "commands": {
+    "capture-screenshot": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "Capture the visible screen and open the SnapDraw editor"
+    }
+  },
+  "permissions": [
+    "activeTab",
+    "clipboardWrite"
+  ],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvt0foKQRlL6lGOWMfYR5AlgW0j1GQAUxQlijX+6bCqV6uao/euRt5tlKNOEFjpzgJ5fGMs8nwbcm1kbm7wDwwtc1tCsnmT3RBiQ3A2g53pcW0hhU4uYZNDPz0tek9g7lqR70EQZ9bkz+FaVBEnOh6gkYUCCrvrq5vpv4oMCUjfStbsrOfh9K1na8ukUyBSnNcfmglc8/j503lUr1P88BkWmFSc4jTssqpNwzUgBtfG6H+WA6oX0qORcZWV9T+0KA5t9zBiIfNPVDcoDE0Z7K6SDhVp72SR2qKJrcihc1Qy3UTlxceQOCFx1agaPWT+9gmgpMwuanRIeDAsZfUDdKKQIDAQAB"
+}
