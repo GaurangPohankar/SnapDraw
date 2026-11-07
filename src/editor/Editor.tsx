@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CaptureUpdateAction, MainMenu } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { Button } from "../components/Button";
@@ -12,9 +13,11 @@ import {
 } from "../services/image.service";
 import { deleteScreenshot } from "../services/storage.service";
 import { readEditorErrorParam, readSessionId } from "../utils/messaging";
+import { AboutDialog } from "./AboutDialog";
 import { EditorCanvas } from "./EditorCanvas";
 import { EditorHeader } from "./EditorHeader";
-import { CloseIcon, WarningIcon } from "./icons";
+import { CloseIcon, GitHubIcon, InfoIcon, TrashIcon, WarningIcon } from "./icons";
+import { SNAPDRAW_REPO_URL } from "./links";
 import { useColorScheme } from "./useColorScheme";
 
 /** Friendly copy for the loading and error screens. */
@@ -176,6 +179,7 @@ export function Editor() {
   const [imagesLocked, setImagesLocked] = useState(true);
   const [annotationCount, setAnnotationCount] = useState(0);
   const [sceneReady, setSceneReady] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   const workspaceRef = useRef<HTMLDivElement | null>(null);
   const theme = useColorScheme();
@@ -244,6 +248,58 @@ export function Editor() {
 
   const handleApiReady = useCallback((nextApi: ExcalidrawImperativeAPI) => {
     setApi(nextApi);
+  }, []);
+
+  /** Removes every annotation, keeping the screenshot element untouched. */
+  const handleClearAnnotations = useCallback((): void => {
+    if (!api) {
+      return;
+    }
+
+    const elements = api.getSceneElements();
+    const imageElements = elements.filter((element) => element.type === "image");
+    if (elements.length === imageElements.length) {
+      showToast({
+        tone: "info",
+        title: "Nothing to clear",
+        description: "There are no annotations on this screenshot yet.",
+        duration: 2400,
+      });
+      return;
+    }
+
+    api.updateScene({
+      elements: imageElements,
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    showToast({
+      tone: "success",
+      title: "Annotations cleared",
+      description: "The screenshot is untouched – undo brings your notes back.",
+    });
+  }, [api, showToast]);
+
+  // Excalidraw's "?" shortcut opens its built-in help dialog, which links to
+  // third-party Excalidraw pages. SnapDraw replaces those links, so the dialog is
+  // kept out of reach – without breaking "?" typed into a text annotation.
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "?" || event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest("textarea, input, [contenteditable='true']")
+      ) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => document.removeEventListener("keydown", handleKeyDown, true);
   }, []);
 
   // Keep the mirrored scene state in sync. The initial scene is restored
@@ -315,7 +371,6 @@ export function Editor() {
         workspaceRef={workspaceRef}
         showToast={showToast}
         imagesLocked={imagesLocked}
-        annotationCount={annotationCount}
         sceneReady={sceneReady}
       />
 
@@ -325,7 +380,38 @@ export function Editor() {
           theme={theme}
           imagesLocked={imagesLocked}
           onApiReady={handleApiReady}
-        />
+        >
+          {/*
+            Replaces Excalidraw's default main menu so its Help / GitHub /
+            "Follow us" / Discord links are gone. Everything here is SnapDraw's.
+          */}
+          <MainMenu>
+            <MainMenu.DefaultItems.SearchMenu />
+            <MainMenu.Separator />
+            <MainMenu.Item
+              icon={<TrashIcon />}
+              disabled={annotationCount === 0}
+              onSelect={handleClearAnnotations}
+            >
+              Clear annotations
+            </MainMenu.Item>
+            <MainMenu.Separator />
+            <MainMenu.ItemLink
+              icon={<GitHubIcon />}
+              href={SNAPDRAW_REPO_URL}
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              SnapDraw on GitHub
+            </MainMenu.ItemLink>
+            <MainMenu.Item
+              icon={<InfoIcon />}
+              onSelect={() => setAboutOpen(true)}
+            >
+              About SnapDraw
+            </MainMenu.Item>
+          </MainMenu>
+        </EditorCanvas>
       </div>
 
       <ToastViewport
@@ -333,6 +419,8 @@ export function Editor() {
         onDismiss={dismissToast}
         placement="bottom-left"
       />
+
+      <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
     </div>
   );
 }

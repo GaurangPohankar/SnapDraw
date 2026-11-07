@@ -1131,6 +1131,160 @@ async function main() {
     });
 
     /* ------------------------------------------------------------------ */
+    await step("SnapDraw links replace Excalidraw links (and header layout)", async () => {
+      await browser.send("Target.activateTarget", { targetId: pages.editorOneTarget.targetId });
+
+      const header = await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const actions = document.querySelector(".sd-header__actions");
+          const buttons = actions ? Array.from(actions.querySelectorAll("button")) : [];
+          const help = document.querySelector(".help-icon");
+          const library = Array.from(document.querySelectorAll(".sidebar-trigger.default-sidebar-trigger"));
+          return {
+            labels: buttons.map((button) => button.getAttribute("aria-label")),
+            hasShare: buttons.some((button) => /share/i.test(button.getAttribute("aria-label") ?? "")),
+            helpHidden: help ? getComputedStyle(help).display === "none" : true,
+            libraryVisible: library.filter((element) => getComputedStyle(element).display !== "none").length,
+          };
+        })()`,
+      );
+
+      check("Share action is removed from the header", header.hasShare === false);
+      check(
+        "header order: undo, redo, reset view, lock, copy, download",
+        JSON.stringify(header.labels) ===
+          JSON.stringify([
+            "Undo",
+            "Redo",
+            "Reset view",
+            "Unlock screenshot",
+            "Copy image",
+            "Download PNG",
+          ]),
+        JSON.stringify(header.labels),
+      );
+      check("reset view sits next to undo/redo", header.labels.slice(0, 3).join(",") === "Undo,Redo,Reset view");
+      check("screenshot lock toggle sits next to reset view", /lock screenshot/i.test(header.labels[3] ?? ""));
+      check("Excalidraw help button is hidden", header.helpHidden === true);
+      check("Excalidraw library button is hidden", header.libraryVisible === 0, `${header.libraryVisible} visible`);
+
+      // Open Excalidraw's main menu – SnapDraw replaces its contents.
+      const menuOpened = await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const trigger = document.querySelector(".main-menu-trigger");
+          if (!trigger) return false;
+          trigger.click();
+          return true;
+        })()`,
+      );
+      await sleep(450);
+      const menu = await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const menu = document.querySelector(".dropdown-menu");
+          if (!menu) return null;
+          return {
+            text: (menu.innerText || "").replace(/\\s+/g, " ").trim(),
+            anchors: Array.from(menu.querySelectorAll("a[href]")).map((anchor) => anchor.getAttribute("href")),
+          };
+        })()`,
+      );
+      check("main menu opens", Boolean(menu), String(menuOpened));
+      const excalidrawLinks = (menu?.anchors ?? []).filter((href) =>
+        /excalidraw|discord|youtube|x\.com|twitter/i.test(href ?? ""),
+      );
+      check("no Excalidraw/social links in the menu", excalidrawLinks.length === 0, excalidrawLinks.join(","));
+      check("menu offers SnapDraw's GitHub link", /SnapDraw on GitHub/.test(menu?.text ?? ""));
+      check("menu offers About SnapDraw", /About SnapDraw/.test(menu?.text ?? ""));
+      check(
+        "GitHub link points at the SnapDraw repository",
+        (menu?.anchors ?? []).includes("https://github.com/GaurangPohankar/SnapDraw"),
+        (menu?.anchors ?? []).join(","),
+      );
+
+      // About dialog.
+      await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const item = Array.from(document.querySelectorAll(".dropdown-menu button, .dropdown-menu a"))
+            .find((element) => /About SnapDraw/i.test(element.textContent ?? ""));
+          item?.click();
+          return Boolean(item);
+        })()`,
+      );
+      await sleep(500);
+      const about = await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const dialog = document.querySelector(".sd-about__dialog");
+          if (!dialog) return null;
+          return {
+            text: (dialog.innerText || "").replace(/\\s+/g, " ").trim().slice(0, 220),
+            anchors: Array.from(dialog.querySelectorAll("a[href]")).map((anchor) => anchor.getAttribute("href")),
+            title: dialog.getAttribute("aria-labelledby"),
+          };
+        })()`,
+      );
+      check("About SnapDraw dialog opens", Boolean(about), "dialog missing");
+      check(
+        "About dialog links to the SnapDraw repository",
+        (about?.anchors ?? []).some((href) => href === "https://github.com/GaurangPohankar/SnapDraw"),
+        (about?.anchors ?? []).join(","),
+      );
+      check(
+        "About dialog states the local-only promise",
+        /local|nothing is uploaded|no account/i.test(about?.text ?? ""),
+        about?.text ?? "",
+      );
+
+      // Close the dialog and any open menu.
+      await pressKey(browser, editorOne, "Escape", "Escape", 27);
+      await sleep(300);
+      await clickAt(browser, editorOne, 640, 500);
+      await sleep(300);
+
+      // Excalidraw's "?" shortcut must no longer surface its help dialog.
+      await browser.send(
+        "Input.dispatchKeyEvent",
+        {
+          type: "rawKeyDown",
+          key: "?",
+          code: "Slash",
+          windowsVirtualKeyCode: 191,
+          nativeVirtualKeyCode: 191,
+          modifiers: 8,
+        },
+        editorOne.sessionId,
+      );
+      await browser.send(
+        "Input.dispatchKeyEvent",
+        {
+          type: "keyUp",
+          key: "?",
+          code: "Slash",
+          windowsVirtualKeyCode: 191,
+          nativeVirtualKeyCode: 191,
+          modifiers: 8,
+        },
+        editorOne.sessionId,
+      );
+      await sleep(500);
+      const helpDialogOpen = await browser.evaluate(
+        editorOne.sessionId,
+        `Boolean(document.querySelector(".HelpDialog"))`,
+      );
+      check("Excalidraw help dialog stays out of reach", helpDialogOpen === false);
+
+      const aboutClosed = await browser.evaluate(
+        editorOne.sessionId,
+        `!document.querySelector(".sd-about__dialog")`,
+      );
+      check("About dialog closes", aboutClosed === true);
+    });
+
+    /* ------------------------------------------------------------------ */
     await step("Annotate: draw a rectangle", async () => {
       await browser.send("Target.activateTarget", { targetId: pages.editorOneTarget.targetId });
       await clickAt(browser, editorOne, 640, 430);
@@ -1469,6 +1623,24 @@ async function main() {
         editorOne.sessionId,
       );
       await writeFile(path.join(screenshotsDir, "editor-light.png"), Buffer.from(light.data, "base64"));
+
+      // Menu screenshot: SnapDraw's links replace Excalidraw's.
+      await browser.evaluate(
+        editorOne.sessionId,
+        `document.querySelector(".main-menu-trigger")?.click(); true`,
+      );
+      await sleep(450);
+      const menuShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        editorOne.sessionId,
+      );
+      await writeFile(path.join(screenshotsDir, "editor-menu.png"), Buffer.from(menuShot.data, "base64"));
+      check("menu screenshot saved", existsSync(path.join(screenshotsDir, "editor-menu.png")));
+      await pressKey(browser, editorOne, "Escape", "Escape", 27);
+      await sleep(300);
+      await clickAt(browser, editorOne, 640, 520);
+      await sleep(300);
 
       await setColorScheme(browser, editorOne.sessionId, "dark");
       await sleep(800);

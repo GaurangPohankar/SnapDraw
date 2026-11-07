@@ -170,42 +170,65 @@ body {
   display: inline;
 }
 
-.sd-header__menu {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
 /* Tighten the primary download button's weight inside the slim header. */
 .sd-header .sd-button--primary {
   box-shadow: 0 1px 2px rgba(79, 70, 229, 0.32);
 }
 
 /* --------------------------------------------------------------------------
-   Header menus
+   Excalidraw chrome that SnapDraw intentionally replaces
+   Excalidraw's help dialog and library panel expose third-party links
+   (docs, socials, libraries.excalidraw.com). SnapDraw's own menu and links
+   replace them, so their entry points are hidden.
    -------------------------------------------------------------------------- */
 
-.sd-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 40;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 236px;
-  padding: 6px;
-  border: 1px solid var(--sd-border);
-  border-radius: var(--sd-radius-md);
-  background: var(--sd-bg-elevated);
-  box-shadow: var(--sd-shadow-lg);
-  animation: sd-menu-in 140ms var(--sd-ease);
+.excalidraw .help-icon,
+.excalidraw .sidebar-trigger.default-sidebar-trigger {
+  display: none !important;
 }
 
-@keyframes sd-menu-in {
+/* --------------------------------------------------------------------------
+   About SnapDraw dialog
+   -------------------------------------------------------------------------- */
+
+.sd-about {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.42);
+  animation: sd-fade-in 140ms var(--sd-ease);
+}
+
+.sd-about__dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: min(460px, 100%);
+  padding: 22px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-lg);
+  background: var(--sd-bg-elevated);
+  box-shadow: var(--sd-shadow-lg);
+  animation: sd-about-in 180ms var(--sd-ease);
+}
+
+@keyframes sd-fade-in {
   from {
     opacity: 0;
-    transform: translateY(-4px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sd-about-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -213,78 +236,103 @@ body {
   }
 }
 
-.sd-menu__item {
+.sd-about__head {
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
+  gap: 12px;
+}
+
+.sd-about__identity {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.sd-about__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--sd-text);
+}
+
+.sd-about__version {
+  margin: 0;
+  font-size: 12px;
+  color: var(--sd-text-muted);
+}
+
+.sd-about__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  margin-left: auto;
+  padding: 0;
   border: none;
   border-radius: var(--sd-radius-sm);
   background: transparent;
-  color: var(--sd-text);
-  font-family: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  line-height: 1.3;
-  text-align: left;
+  color: var(--sd-text-muted);
   cursor: pointer;
   transition: background-color var(--sd-duration-fast) var(--sd-ease);
 }
 
-.sd-menu__item:hover:not(:disabled),
-.sd-menu__item:focus-visible {
+.sd-about__close:hover {
   background: var(--sd-surface-2);
+  color: var(--sd-text);
 }
 
-.sd-menu__item:focus-visible {
-  outline: 2px solid var(--sd-brand);
-  outline-offset: -2px;
+.sd-about__text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--sd-text-secondary);
 }
 
-.sd-menu__item:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
+.sd-about__links {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.sd-menu__item-icon {
-  display: inline-flex;
+.sd-about__link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 11px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-sm);
+  background: var(--sd-surface);
+  color: var(--sd-text);
+  font-size: 13px;
+  font-weight: 550;
+  text-decoration: none;
+  transition:
+    background-color var(--sd-duration-fast) var(--sd-ease),
+    border-color var(--sd-duration-fast) var(--sd-ease);
+}
+
+.sd-about__link:hover {
+  background: var(--sd-surface-2);
+  border-color: var(--sd-border-strong);
+}
+
+.sd-about__link svg {
   flex: 0 0 auto;
   color: var(--sd-text-muted);
 }
 
-.sd-menu__item:hover:not(:disabled) .sd-menu__item-icon {
-  color: var(--sd-text);
+.sd-about__link-external {
+  margin-left: auto;
 }
 
-.sd-menu__item-label {
-  min-width: 0;
-}
-
-.sd-menu__separator {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--sd-border);
-}
-
-.sd-menu__confirm {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  padding: 8px 10px 6px;
-}
-
-.sd-menu__confirm-text {
+.sd-about__footer {
   margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--sd-text-secondary);
-}
-
-.sd-menu__confirm-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 6px;
+  font-size: 11.5px;
+  color: var(--sd-text-muted);
 }
 
 /* --------------------------------------------------------------------------

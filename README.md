@@ -16,6 +16,10 @@ the annotations and every asset live on your machine.
 
 *Screenshots and the exported PNG above are produced automatically by the end-to-end test suite.*
 
+![SnapDraw menu](docs/screenshots/editor-menu.png)
+
+*The SnapDraw menu replaces Excalidraw's default menu – its only links point back to this project.*
+
 ---
 
 ## Table of contents
@@ -45,7 +49,12 @@ the annotations and every asset live on your machine.
 - **Full Excalidraw toolset** – freehand, arrows, lines, rectangles, diamonds, ellipses, text, colors,
   stroke styles/widths, fill, opacity, layers, zoom/pan, select/move/resize, undo/redo.
 - **Screenshot is protected** – inserted as a **locked** image element at its original pixel size, so
-  it cannot be moved or deleted by accident. Unlock it from **More → Unlock screenshot** when needed.
+  it cannot be moved or deleted by accident. The lock toggle sits in the header next to **Reset view**.
+- **Header actions where you expect them** – undo/redo, reset view and the screenshot lock are grouped
+  together; Copy Image and Download sit on the right. No duplicate or dead buttons.
+- **SnapDraw menu** – replaces Excalidraw's menu: *Find on canvas*, *Clear annotations*,
+  *SnapDraw on GitHub* and *About SnapDraw*. Excalidraw's help dialog, social links and the
+  `libraries.excalidraw.com` panel are removed, so the only outbound links are SnapDraw's own.
 - **Copy to clipboard** – exports the annotated PNG and writes it to the clipboard (Slack, Discord,
   mail, docs…), with a confirmation toast and graceful error handling.
 - **Download PNG** – full-quality 1:1 export (screenshot + annotations + breathing-room padding).
@@ -130,7 +139,9 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
 3. The editor tab opens with the screenshot centred and ready to annotate.
 4. Annotate with the Excalidraw toolbar on top.
 5. **Copy Image** and paste anywhere, or **Download** to save `<document-name>.png`.
-6. The **More** menu has *Reset view*, *Clear annotations*, *Lock/Unlock screenshot* and *About*.
+6. The **SnapDraw menu** (top-left) has *Find on canvas*, *Clear annotations*, *SnapDraw on GitHub*
+   and *About SnapDraw*. **Reset view** and the **screenshot lock** live in the header next to
+   undo/redo; **Copy Image** and **Download** are on the right.
 
 The pointer is the selection tool. Keyboard shortcuts from Excalidraw apply (`1`–`8` / `r`, `o`,
 `a`, `t`, `l`, `p`, `d`, `z` for tools; `Ctrl/⌘+Z`, `Shift+Ctrl/⌘+Z` for undo/redo; space-drag to pan).
@@ -164,10 +175,10 @@ snapdraw/
 ├── src/
 │   ├── background/service-worker.ts
 │   ├── popup/                      # Popup.tsx, popup.css, useCapture.ts, shortcut.ts, components/
-│   ├── editor/                     # Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, editor.css,
-│   │                               # excalidrawActions.ts, useColorScheme.ts, icons.tsx
+│   ├── editor/                     # Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, AboutDialog.tsx,
+│   │                               # excalidrawActions.ts, links.ts, editor.css
 │   ├── components/                 # Button, Toast, Logo (shared primitives)
-│   ├── services/                   # screenshot, image, storage, export, clipboard, share
+│   ├── services/                   # screenshot, image, storage, export, clipboard
 │   ├── utils/                      # messaging, image-conversion
 │   ├── types/                      # shared contracts + Excalidraw export type shim
 │   └── styles/global.css           # design tokens + shared component styles
@@ -188,9 +199,9 @@ snapdraw/
 | **Popup** (`src/popup/`) | Renders the single capture action, live shortcut hint, local-only trust copy and inline error states. Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
 | **Service worker** (`src/background/`) | Resolves the active tab, rejects restricted pages, captures the viewport, stores the screenshot, opens the editor tab, and handles the keyboard command. When a keyboard capture fails there is no popup to show the error, so the worker flags the toolbar icon (`!` badge + tooltip) and opens a short explanation tab. |
 | **Screenshot service** (`src/services/screenshot.service.ts`) | The capture pipeline itself; pure helpers (`classifyTabUrl`, `buildScreenshotName`, `toErrorPayload`) are unit-tested. |
-| **Editor** (`src/editor/`) | Loads the capture from IndexedDB, deletes the temporary record, builds the Excalidraw scene, provides header actions (copy/download/share/more), loading and error screens. |
+| **Editor** (`src/editor/`) | Loads the capture from IndexedDB, deletes the temporary record, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu and loading/error screens. |
 | **Excalidraw integration** (`src/editor/EditorCanvas.tsx`, `excalidrawActions.ts`) | One locked image element at natural pixel size + `files` map, `fitToContent` on mount, scene updates for lock/clear, PNG export helpers. |
-| **Services** (`src/services/`) | `storage` (IndexedDB), `image` (decode/encode), `export` (PNG blob + download), `clipboard`, `share` (v2 provider registry). |
+| **Services** (`src/services/`) | `storage` (IndexedDB), `image` (decode/encode), `export` (PNG blob + download), `clipboard`. |
 
 ### Image transfer (no cross-tab memory, no giant URLs)
 
@@ -212,6 +223,12 @@ snapdraw/
 - Excalidraw 0.18 exposes no imperative `undo()`/`redo()`, so the header buttons replay the editor's
   own `Ctrl/⌘+Z`/`Shift+Ctrl/⌘+Z` keyboard action on the Excalidraw container
   (`src/editor/excalidrawActions.ts`). Pressing the keys directly works too.
+- **Branding is SnapDraw's:** the default Excalidraw main menu is replaced through the supported
+  `MainMenu` API (`src/editor/Editor.tsx`), so its *Help / GitHub / Follow us / Discord* links are
+  gone; SnapDraw's GitHub and About entries take their place. The help dialog entry point
+  (`.help-icon`, including the `?` shortcut) and the library panel (`libraries.excalidraw.com`) are
+  removed in `src/editor/editor.css` + `src/editor/Editor.tsx`, and the About dialog lives in
+  `src/editor/AboutDialog.tsx`. The only outbound links are SnapDraw's repository and issue tracker.
 - The screenshot element uses its natural pixel dimensions and is fitted to the viewport with
   `scrollToContent(..., { fitToContent: true })`, so the exported PNG is 1:1 with the capture.
 - Export uses `exportToBlob` with `exportScale: 1`, `exportBackground: true`, white background and
@@ -284,13 +301,18 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (49 checks, all driven through real input events and real downloads):
+It verifies (66 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, shortcut hint, local-only copy and version;
 - one click captures a 1200×760 viewport, opens the editor tab with that session, and loads the
   screenshot into Excalidraw at exactly 1232×792 (native size + 16px padding);
 - a locked screenshot survives an accidental `Delete`;
+- the header contains exactly *Undo, Redo, Reset view, Lock, Copy Image, Download* (no Share) and
+  reset view + lock sit next to undo/redo;
+- the SnapDraw menu opens with GitHub / About SnapDraw links, no Excalidraw or social links; the
+  About dialog opens, states the local-only promise and links to the repository; Excalidraw's help
+  button, library button and `?` help dialog are unreachable;
 - drawing a rectangle + adding text renders both into the exported PNG; the handwriting font is
   loaded locally and **zero external resources** are requested;
 - header undo returns to the untouched screenshot and redo restores the annotations;
@@ -352,11 +374,10 @@ IndexedDB are tied to the ID.
 
 The code is split so the roadmap can be added without reworking version 1:
 
-- **Sharing (links, Slack, Discord, email, cloud).** `src/services/share.service.ts` already defines a
-  typed `ShareProvider` interface (`id`, `label`, `isAvailable()`, `share(blob, meta)`) plus a
-  registry. The header's Share action reads the registry and cleanly explains that no provider is
-  available yet. Add providers (and the matching `host_permissions` / OAuth) and the UI works
-  unchanged. Sharing must stay opt-in; version 1 is local-only by design.
+- **Sharing (links, Slack, Discord, email, cloud).** Deliberately not part of v1 – SnapDraw is
+  local-only and its header/menu carry no share action. When adding sharing, introduce an opt-in
+  provider layer (typed `ShareProvider` interface + registry), surface it in the SnapDraw menu and
+  require explicit `host_permissions`; nothing should leave the device until a provider is enabled.
 - **Saved projects / reopening screenshots.** `src/services/storage.service.ts` holds the IndexedDB
   schema (`snapdraw` DB, version 1). Add a `projects` store in a version-2 upgrade and serialise the
   Excalidraw scene (`serializeAsJSON` + `files`) alongside the capture. `EditorCanvas.tsx` already

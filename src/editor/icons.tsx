@@ -67,28 +67,6 @@ export function DownloadIcon(props: IconProps) {
   );
 }
 
-export function ShareIcon(props: IconProps) {
-  return (
-    <IconShell {...props}>
-      <circle cx="4" cy="8" r="1.7" />
-      <circle cx="12" cy="3.9" r="1.7" />
-      <circle cx="12" cy="12.1" r="1.7" />
-      <path d="m5.5 7.2 5-2.5" />
-      <path d="m5.5 8.8 5 2.5" />
-    </IconShell>
-  );
-}
-
-export function MoreIcon(props: IconProps) {
-  return (
-    <IconShell {...props}>
-      <circle cx="3.4" cy="8" r="1.15" fill="currentColor" stroke="none" />
-      <circle cx="8" cy="8" r="1.15" fill="currentColor" stroke="none" />
-      <circle cx="12.6" cy="8" r="1.15" fill="currentColor" stroke="none" />
-    </IconShell>
-  );
-}
-
 export function FitViewIcon(props: IconProps) {
   return (
     <IconShell {...props}>
@@ -96,6 +74,26 @@ export function FitViewIcon(props: IconProps) {
       <path d="M10 2.6h2.2a1.2 1.2 0 0 1 1.2 1.2V6" />
       <path d="M6 13.4H3.8a1.2 1.2 0 0 1-1.2-1.2V10" />
       <path d="M10 13.4h2.2a1.2 1.2 0 0 0 1.2-1.2V10" />
+    </IconShell>
+  );
+}
+
+/** SnapDraw's own GitHub mark (not Excalidraw's). */
+export function GitHubIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <path d="M6.2 12.2c-2.3.7-2.3-1.2-3.2-1.5" />
+      <path d="M9.8 13.6v-1.9c0-.6.1-1-.4-1.4 1.5-.2 2.9-.8 2.9-3.3 0-.7-.3-1.3-.7-1.8.1-.3.3-.9-.1-1.7 0 0-.6-.2-1.9.7a6.3 6.3 0 0 0-3.2 0C5.1 3.2 4.5 3.4 4.5 3.4c-.4.8-.2 1.4-.1 1.7-.4.5-.7 1.1-.7 1.8 0 2.5 1.4 3.1 2.9 3.3-.4.4-.4.8-.4 1.3v2.1" />
+    </IconShell>
+  );
+}
+
+export function ExternalLinkIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <path d="M6.8 3.2H3.9a1.3 1.3 0 0 0-1.3 1.3v7.6a1.3 1.3 0 0 0 1.3 1.3h7.6a1.3 1.3 0 0 0 1.3-1.3V9.2" />
+      <path d="M9.4 2.6h4v4" />
+      <path d="m13.2 2.8-5.4 5.4" />
     </IconShell>
   );
 }

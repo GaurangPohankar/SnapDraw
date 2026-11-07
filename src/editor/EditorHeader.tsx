@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import { useState } from "react";
+import type { RefObject } from "react";
 import { CaptureUpdateAction, mutateElement } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { Button } from "../components/Button";
@@ -17,7 +17,6 @@ import {
   copyImageBlobToClipboard,
   isClipboardImageCopySupported,
 } from "../services/clipboard.service";
-import { getAvailableShareProviders } from "../services/share.service";
 import {
   dispatchHistoryShortcut,
   fitSceneToContent,
@@ -28,12 +27,8 @@ import {
   CopyIcon,
   DownloadIcon,
   FitViewIcon,
-  InfoIcon,
   LockIcon,
-  MoreIcon,
   RedoIcon,
-  ShareIcon,
-  TrashIcon,
   UndoIcon,
   UnlockIcon,
 } from "./icons";
@@ -45,24 +40,10 @@ export interface EditorHeaderProps {
   /** Wrapper around the Excalidraw canvas, used for synthetic history keys. */
   workspaceRef: RefObject<HTMLDivElement>;
   showToast: (toast: ShowToastInput) => string;
-  /** Mirrored scene state owned by `Editor`. */
+  /** Mirrors the image element's lock flag (owned by the editor). */
   imagesLocked: boolean;
-  annotationCount: number;
+  /** True once the screenshot element exists in the scene. */
   sceneReady: boolean;
-}
-
-const MORE_MENU_ID = "sd-editor-more-menu";
-
-/** Version shown in the About toast (falls back to "dev" outside the extension). */
-function getExtensionVersion(): string {
-  try {
-    if (typeof chrome !== "undefined" && typeof chrome.runtime?.getManifest === "function") {
-      return chrome.runtime.getManifest().version;
-    }
-  } catch {
-    // Plain-browser preview.
-  }
-  return "dev";
 }
 
 function describeActionError(error: unknown): { message: string; hint?: string } {
@@ -79,113 +60,27 @@ function toastDescription(message: string, hint?: string): string {
   return hint ? `${message} ${hint}` : message;
 }
 
-interface MenuItemProps {
-  icon: ReactNode;
-  children: ReactNode;
-  onSelect: () => void;
-  disabled?: boolean;
-}
-
-function MenuItem({ icon, children, onSelect, disabled = false }: MenuItemProps) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      className="sd-menu__item"
-      onClick={onSelect}
-      disabled={disabled}
-    >
-      <span className="sd-menu__item-icon">{icon}</span>
-      <span className="sd-menu__item-label">{children}</span>
-    </button>
-  );
-}
-
+/**
+ * Editor chrome: brand + document name on the left; history (undo/redo), view
+ * (reset view, screenshot lock) and export (copy/download) actions on the right.
+ *
+ * Drawing tools stay in Excalidraw's own toolbar; SnapDraw's menu (clear
+ * annotations, GitHub, about) lives in Excalidraw's main menu.
+ */
 export function EditorHeader({
   prepared,
   api,
   workspaceRef,
   showToast,
   imagesLocked,
-  annotationCount,
   sceneReady,
 }: EditorHeaderProps) {
   const [pendingAction, setPendingAction] = useState<"copy" | "download" | null>(null);
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [confirmClear, setConfirmClear] = useState(false);
-
-  const menuAnchorRef = useRef<HTMLDivElement | null>(null);
-  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const docName = prepared.record.name.trim() || "Screenshot";
   const clipboardSupported = isClipboardImageCopySupported();
   const busy = pendingAction !== null;
-
-  // Keep keyboard focus inside the menu when the inline confirm replaces the
-  // "Clear annotations" item.
-  useEffect(() => {
-    if (!confirmClear) {
-      return;
-    }
-    menuRef.current
-      ?.querySelector<HTMLButtonElement>(".sd-menu__confirm-actions button")
-      ?.focus();
-  }, [confirmClear]);
-
-  const closeMenu = (): void => {
-    setMenuOpen(false);
-    setConfirmClear(false);
-  };
-
-  const handleMenuToggle = (): void => {
-    if (menuOpen) {
-      closeMenu();
-    } else {
-      setMenuOpen(true);
-    }
-  };
-
-  // Close the More menu on outside click or Escape, restoring focus to the trigger.
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-
-    const handlePointerDown = (event: PointerEvent): void => {
-      const target = event.target;
-      if (target instanceof Node && menuAnchorRef.current?.contains(target)) {
-        return;
-      }
-      closeMenu();
-    };
-
-    const handleKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== "Escape") {
-        return;
-      }
-      event.preventDefault();
-      closeMenu();
-      menuAnchorRef.current?.querySelector<HTMLButtonElement>("button")?.focus();
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown, true);
-    document.addEventListener("keydown", handleKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown, true);
-      document.removeEventListener("keydown", handleKeyDown, true);
-    };
-  }, [menuOpen]);
-
-  // Move focus into the menu when it opens.
-  useEffect(() => {
-    if (!menuOpen) {
-      return;
-    }
-    const firstItem = menuRef.current?.querySelector<HTMLElement>(
-      "[role='menuitem']:not([disabled])",
-    );
-    firstItem?.focus();
-  }, [menuOpen]);
+  const exportReady = Boolean(api) && sceneReady;
 
   const handleHistory = (direction: HistoryDirection): void => {
     if (dispatchHistoryShortcut(workspaceRef.current, direction)) {
@@ -198,8 +93,53 @@ export function EditorHeader({
     });
   };
 
+  const handleResetView = (): void => {
+    if (!api) {
+      return;
+    }
+    if (fitSceneToContent(api, { animate: true })) {
+      showToast({
+        tone: "info",
+        title: "View reset",
+        description: "The whole screenshot is in view again.",
+        duration: 2200,
+      });
+    }
+  };
+
+  const handleToggleLock = (): void => {
+    if (!api) {
+      return;
+    }
+
+    const elements = api.getSceneElements();
+    const imageElements = elements.filter((element) => element.type === "image");
+    if (imageElements.length === 0) {
+      return;
+    }
+
+    const nextLocked = !imageElements.every((element) => element.locked);
+    api.updateScene({
+      elements: elements.map((element) =>
+        element.type === "image"
+          ? mutateElement(element, { locked: nextLocked })
+          : element,
+      ),
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+
+    showToast({
+      tone: "info",
+      title: nextLocked ? "Screenshot locked" : "Screenshot unlocked",
+      description: nextLocked
+        ? "The screenshot can't be moved or deleted by accident."
+        : "Move or resize the screenshot freely, then lock it again.",
+      duration: 3600,
+    });
+  };
+
   const handleCopy = async (): Promise<void> => {
-    if (!api || busy) {
+    if (!api || !sceneReady || busy) {
       return;
     }
     setPendingAction("copy");
@@ -225,7 +165,7 @@ export function EditorHeader({
   };
 
   const handleDownload = async (): Promise<void> => {
-    if (!api || busy) {
+    if (!api || !sceneReady || busy) {
       return;
     }
     setPendingAction("download");
@@ -249,98 +189,6 @@ export function EditorHeader({
     } finally {
       setPendingAction(null);
     }
-  };
-
-  const handleShare = (): void => {
-    closeMenu();
-    const providers = getAvailableShareProviders();
-    showToast({
-      tone: "info",
-      title: "Sharing arrives in v2",
-      description:
-        providers.length === 0
-          ? "Your image never leaves this device. Use Copy Image or Download PNG today."
-          : "Choose a provider to share your annotated screenshot.",
-      duration: 5200,
-    });
-  };
-
-  const handleResetView = (): void => {
-    closeMenu();
-    if (!api) {
-      return;
-    }
-    if (fitSceneToContent(api, { animate: true })) {
-      showToast({
-        tone: "info",
-        title: "View reset",
-        description: "The whole screenshot is in view again.",
-        duration: 2200,
-      });
-    }
-  };
-
-  const handleToggleLock = (): void => {
-    closeMenu();
-    if (!api) {
-      return;
-    }
-
-    const elements = api.getSceneElements();
-    const imageElements = elements.filter((element) => element.type === "image");
-    if (imageElements.length === 0) {
-      return;
-    }
-
-    const nextLocked = !imageElements.every((element) => element.locked);
-    api.updateScene({
-      elements: elements.map((element) =>
-        element.type === "image"
-          ? mutateElement(element, { locked: nextLocked })
-          : element,
-      ),
-      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-    });
-
-    showToast({
-      tone: "info",
-      title: nextLocked ? "Screenshot locked" : "Screenshot unlocked",
-      description: nextLocked
-        ? "Annotations can be selected; the screenshot stays in place."
-        : "Move or resize the screenshot freely, then lock it again from More.",
-      duration: 3600,
-    });
-  };
-
-  const handleClearAnnotations = (): void => {
-    closeMenu();
-    if (!api) {
-      return;
-    }
-
-    const elements = api.getSceneElements();
-    const imageElements = elements.filter((element) => element.type === "image");
-    api.updateScene({
-      elements: imageElements,
-      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
-    });
-
-    showToast({
-      tone: "success",
-      title: "Annotations cleared",
-      description: "The screenshot is untouched – undo brings your notes back.",
-    });
-  };
-
-  const handleAbout = (): void => {
-    closeMenu();
-    const version = getExtensionVersion();
-    showToast({
-      tone: "info",
-      title: "About SnapDraw",
-      description: `Version ${version} · Screenshots and annotations stay on this device.`,
-      duration: 6000,
-    });
   };
 
   return (
@@ -373,7 +221,7 @@ export function EditorHeader({
             size="sm"
             title="Undo (Ctrl/Cmd+Z)"
             aria-label="Undo"
-            disabled={!api || !sceneReady}
+            disabled={!api}
             onClick={() => handleHistory("undo")}
           >
             <UndoIcon />
@@ -383,10 +231,40 @@ export function EditorHeader({
             size="sm"
             title="Redo (Ctrl/Cmd+Shift+Z)"
             aria-label="Redo"
-            disabled={!api || !sceneReady}
+            disabled={!api}
             onClick={() => handleHistory("redo")}
           >
             <RedoIcon />
+          </Button>
+        </div>
+
+        <span className="sd-header__divider" aria-hidden="true" />
+
+        <div className="sd-header__group" role="group" aria-label="View">
+          <Button
+            variant="icon"
+            size="sm"
+            title="Reset view — fit the screenshot to the screen"
+            aria-label="Reset view"
+            disabled={!api}
+            onClick={handleResetView}
+          >
+            <FitViewIcon />
+          </Button>
+          <Button
+            variant="icon"
+            size="sm"
+            title={
+              imagesLocked
+                ? "Screenshot locked — click to unlock"
+                : "Screenshot unlocked — click to lock"
+            }
+            aria-label={imagesLocked ? "Unlock screenshot" : "Lock screenshot"}
+            aria-pressed={imagesLocked}
+            disabled={!api}
+            onClick={handleToggleLock}
+          >
+            {imagesLocked ? <LockIcon /> : <UnlockIcon />}
           </Button>
         </div>
 
@@ -398,7 +276,7 @@ export function EditorHeader({
             size="sm"
             leadingIcon={<CopyIcon />}
             loading={pendingAction === "copy"}
-            disabled={!api || !sceneReady || pendingAction === "download"}
+            disabled={!exportReady || pendingAction === "download"}
             title={
               clipboardSupported
                 ? "Copy the annotated image to the clipboard"
@@ -415,101 +293,13 @@ export function EditorHeader({
             size="sm"
             leadingIcon={<DownloadIcon />}
             loading={pendingAction === "download"}
-            disabled={!api || !sceneReady || pendingAction === "copy"}
+            disabled={!exportReady || pendingAction === "copy"}
             title="Download the annotated image as a PNG"
             aria-label="Download PNG"
             onClick={() => void handleDownload()}
           >
             <span className="sd-header__action-label">Download</span>
           </Button>
-
-          <Button
-            variant="secondary"
-            size="sm"
-            leadingIcon={<ShareIcon />}
-            title="Share (arrives in v2)"
-            aria-label="Share"
-            onClick={handleShare}
-          >
-            <span className="sd-header__action-label">Share</span>
-          </Button>
-        </div>
-
-        <div className="sd-header__menu" ref={menuAnchorRef}>
-          <Button
-            variant="icon"
-            size="sm"
-            title="More actions"
-            aria-label="More actions"
-            aria-haspopup="menu"
-            aria-expanded={menuOpen}
-            aria-controls={menuOpen ? MORE_MENU_ID : undefined}
-            disabled={!api || !sceneReady}
-            onClick={handleMenuToggle}
-          >
-            <MoreIcon />
-          </Button>
-
-          {menuOpen ? (
-            <div
-              id={MORE_MENU_ID}
-              ref={menuRef}
-              className="sd-menu"
-              role="menu"
-              aria-label="More actions"
-            >
-              <MenuItem icon={<FitViewIcon />} onSelect={handleResetView}>
-                Reset view
-              </MenuItem>
-
-              {confirmClear ? (
-                <div className="sd-menu__confirm" role="none">
-                  <p className="sd-menu__confirm-text">
-                    Remove all annotations? The screenshot stays.
-                  </p>
-                  <div className="sd-menu__confirm-actions">
-                    <Button
-                      role="menuitem"
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => setConfirmClear(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      role="menuitem"
-                      variant="primary"
-                      size="sm"
-                      onClick={handleClearAnnotations}
-                    >
-                      Clear
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <MenuItem
-                  icon={<TrashIcon />}
-                  onSelect={() => setConfirmClear(true)}
-                  disabled={annotationCount === 0}
-                >
-                  Clear annotations
-                </MenuItem>
-              )}
-
-              <MenuItem
-                icon={imagesLocked ? <UnlockIcon /> : <LockIcon />}
-                onSelect={handleToggleLock}
-              >
-                {imagesLocked ? "Unlock screenshot" : "Lock screenshot"}
-              </MenuItem>
-
-              <span className="sd-menu__separator" role="separator" />
-
-              <MenuItem icon={<InfoIcon />} onSelect={handleAbout}>
-                About SnapDraw
-              </MenuItem>
-            </div>
-          ) : null}
         </div>
       </div>
     </header>
