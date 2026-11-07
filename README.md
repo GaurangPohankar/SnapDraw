@@ -73,6 +73,7 @@ reopen it, or **View all** for the full history.*
   editor tab keeps the screenshot, and the popup's **Screenshot history** lists every saved capture
   (newest first, with thumbnails) to reopen, delete or clear. The capture view also shows a compact
   **recent-captures preview** (up to three thumbnails, click to reopen) with a **View all** link.
+  Old captures saved without a thumbnail are healed automatically by generating and persisting one.
   Up to 20 captures are kept for 30 days.
 - **Light & dark** – follows the OS colour scheme; the exported PNG is always light/white.
 - **Friendly failures** – restricted pages (`chrome://`, Web Store, other extensions, DevTools) get
@@ -198,7 +199,7 @@ snapdraw/
 │   ├── editor/                     # Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, AboutDialog.tsx,
 │   │                               # excalidrawActions.ts, links.ts, editor.css
 │   ├── components/                 # Button, Toast, Logo (shared primitives)
-│   ├── services/                   # screenshot, image, storage, export, clipboard
+│   ├── services/                   # screenshot, image, storage, thumbnail, export, clipboard
 │   ├── utils/                      # messaging, image-conversion
 │   ├── types/                      # shared contracts + Excalidraw export type shim
 │   └── styles/global.css           # design tokens + shared component styles
@@ -232,8 +233,10 @@ snapdraw/
   it to a data URL for Excalidraw's `BinaryFiles`. **The record is kept**, so refreshing the editor
   reloads the same capture instead of erroring.
 - History replaces the old "delete after load" model: the popup lists captures newest first and can
-  reopen, delete or clear them. Retention is bounded to the newest **20 captures** and **30 days**
-  (`HISTORY_LIMIT` / `HISTORY_RETENTION_MS` in `storage.service.ts`), pruned on startup and after captures.
+  reopen, delete or clear them. Thumbnails are generated at capture time (`thumbnail.service.ts`);
+  records that predate thumbnails get one generated on demand and persisted. Retention is bounded to
+  the newest **20 captures** and **30 days** (`HISTORY_LIMIT` / `HISTORY_RETENTION_MS` in
+  `storage.service.ts`), pruned on startup and after captures.
 
 ### Excalidraw integration notes
 
@@ -328,7 +331,7 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (86 checks, all driven through real input events and real downloads):
+It verifies (91 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, shortcut hint, local-only copy, version, dash-free tagline and the
@@ -351,8 +354,9 @@ It verifies (86 checks, all driven through real input events and real downloads)
   editor intact;
 - the popup's **Screenshot history** lists both captures newest-first with rendered thumbnails, reopens
   the selected capture in the editor, deletes one entry, and clears the rest (emptying IndexedDB);
-- the capture view's **recent-captures preview** shows the saved thumbnails, links to the full history
-  and opens the newest capture when clicked;
+- the capture view's **recent-captures preview** shows the saved thumbnails (verified to contain the
+  actual page content, not a blank block), links to the full history and opens the newest capture
+  when clicked; a legacy capture without a thumbnail gets one generated and persisted automatically;
 - extension pages produce the friendly restricted-page error with retry; missing/expired sessions and
   `?error=` messages show recoverable error screens;
 - light + dark editor screenshots are written to `docs/screenshots/`.

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ScreenshotHistoryEntry } from "../types";
 import { listScreenshots } from "../services/storage.service";
+import { ensureThumbnailFor } from "../services/thumbnail.service";
 
 export interface RecentScreenshot {
   entry: ScreenshotHistoryEntry;
@@ -40,6 +41,35 @@ export function useRecentScreenshots(
     thumbnailUrlsRef.current = [];
   }, []);
 
+  /**
+   * Fills in missing previews by decoding the stored screenshot on demand.
+   * Older captures (saved before thumbnails existed) would otherwise show a
+   * placeholder instead of the actual image.
+   */
+  const backfillMissingThumbnails = useCallback(
+    async (preview: RecentScreenshot[]): Promise<void> => {
+      for (const item of preview) {
+        if (item.thumbnailUrl) {
+          continue;
+        }
+
+        const thumbnail = await ensureThumbnailFor(item.entry);
+        if (!mountedRef.current || !thumbnail) {
+          continue;
+        }
+
+        const url = URL.createObjectURL(thumbnail);
+        thumbnailUrlsRef.current.push(url);
+        setRecent((current) =>
+          current.map((row) =>
+            row.entry.id === item.entry.id ? { ...row, thumbnailUrl: url } : row,
+          ),
+        );
+      }
+    },
+    [],
+  );
+
   const refresh = useCallback(async (): Promise<void> => {
     try {
       const entries = await listScreenshots();
@@ -59,6 +89,7 @@ export function useRecentScreenshots(
 
       setRecent(preview);
       setTotal(entries.length);
+      void backfillMissingThumbnails(preview);
     } catch {
       // The history is a convenience: a storage hiccup just hides the preview.
       if (mountedRef.current) {
@@ -66,7 +97,7 @@ export function useRecentScreenshots(
         setTotal(0);
       }
     }
-  }, [limit, releaseThumbnailUrls]);
+  }, [limit, releaseThumbnailUrls, backfillMissingThumbnails]);
 
   useEffect(() => {
     mountedRef.current = true;

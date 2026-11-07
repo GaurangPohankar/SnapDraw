@@ -8,6 +8,7 @@ import {
   HISTORY_LIMIT,
   listScreenshots,
 } from "../../services/storage.service";
+import { ensureThumbnailFor } from "../../services/thumbnail.service";
 import { openScreenshotInEditor } from "../openScreenshot";
 import { ChevronLeftIcon, ImageIcon, TrashIcon } from "./icons";
 
@@ -59,6 +60,39 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
     thumbnailUrlsRef.current = [];
   }, []);
 
+  /**
+   * Older captures may not have a stored thumbnail yet. Generate one from the
+   * saved screenshot and reflect it in the list immediately (the service also
+   * persists it, so subsequent opens are instant).
+   */
+  const backfillMissingThumbnails = useCallback(
+    async (rows: HistoryRow[]): Promise<void> => {
+      for (const row of rows) {
+        if (row.thumbnailUrl) {
+          continue;
+        }
+
+        const thumbnail = await ensureThumbnailFor(row.entry);
+        if (!mountedRef.current || !thumbnail) {
+          continue;
+        }
+
+        const url = URL.createObjectURL(thumbnail);
+        thumbnailUrlsRef.current.push(url);
+        setRows((current) =>
+          current
+            ? current.map((item) =>
+                item.entry.id === row.entry.id
+                  ? { ...item, thumbnailUrl: url }
+                  : item,
+              )
+            : current,
+        );
+      }
+    },
+    [],
+  );
+
   const load = useCallback(async (): Promise<void> => {
     try {
       const entries = await listScreenshots();
@@ -78,6 +112,7 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
 
       setRows(nextRows);
       setLoadError(null);
+      void backfillMissingThumbnails(nextRows);
     } catch (error) {
       if (!mountedRef.current) {
         return;
@@ -86,7 +121,7 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
         error instanceof Error ? error.message : "Could not read the local history.",
       );
     }
-  }, [releaseThumbnailUrls]);
+  }, [releaseThumbnailUrls, backfillMissingThumbnails]);
 
   useEffect(() => {
     mountedRef.current = true;
