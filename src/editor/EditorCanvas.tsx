@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { Excalidraw, convertToExcalidrawElements } from "@excalidraw/excalidraw";
 import type {
   BinaryFiles,
@@ -19,6 +20,11 @@ export interface EditorCanvasProps {
   imagesLocked: boolean;
   /** Called once Excalidraw has mounted so the header can drive the scene. */
   onApiReady: (api: ExcalidrawImperativeAPI) => void;
+  /**
+   * Excalidraw UI slots rendered inside the canvas. SnapDraw passes a custom
+   * `MainMenu` here to replace Excalidraw's menu (and its external links).
+   */
+  children?: ReactNode;
 }
 
 /**
@@ -102,6 +108,7 @@ export function EditorCanvas({
   theme,
   imagesLocked,
   onApiReady,
+  children,
 }: EditorCanvasProps) {
   // Built exactly once for the lifetime of this editor session.
   const [initialData] = useState<ExcalidrawInitialDataState>(() =>
@@ -178,6 +185,7 @@ export function EditorCanvas({
       excalidrawAPI={handleApiReady}
       UIOptions={CANVAS_UI_OPTIONS}
     >
+      {children}
       {/* Screen-reader status: Excalidraw's children slot renders inside its
           container, so the lock state is announced without touching its UI. */}
       <span
