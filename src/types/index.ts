@@ -71,4 +71,14 @@ export interface ScreenshotMeta {
  */
 export interface ScreenshotRecord extends ScreenshotMeta {
   blob: Blob;
+  /** Small preview generated at capture time for the history list. */
+  thumbnail?: Blob;
+}
+
+/**
+ * A history row: metadata plus the optional thumbnail, never the full blob, so
+ * listing the history stays cheap even with multi-MB captures stored.
+ */
+export interface ScreenshotHistoryEntry extends ScreenshotMeta {
+  thumbnail?: Blob;
 }

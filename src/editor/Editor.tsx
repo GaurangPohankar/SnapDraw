@@ -11,12 +11,11 @@ import {
   loadPreparedScreenshot,
   type PreparedScreenshot,
 } from "../services/image.service";
-import { deleteScreenshot } from "../services/storage.service";
 import { readEditorErrorParam, readSessionId } from "../utils/messaging";
 import { AboutDialog } from "./AboutDialog";
 import { EditorCanvas } from "./EditorCanvas";
 import { EditorHeader } from "./EditorHeader";
-import { CloseIcon, GitHubIcon, InfoIcon, TrashIcon, WarningIcon } from "./icons";
+import { CloseIcon, ClockIcon, GitHubIcon, InfoIcon, TrashIcon, WarningIcon } from "./icons";
 import { SNAPDRAW_REPO_URL } from "./links";
 import { useColorScheme } from "./useColorScheme";
 
@@ -220,16 +219,10 @@ export function Editor() {
 
         setPrepared(loaded);
 
-        // The capture record is only a hand-off to this tab: the data URL is in
-        // memory now (and inside the Excalidraw scene), so remove the temp entry.
-        try {
-          await deleteScreenshot(sessionId);
-        } catch (cleanupError) {
-          console.warn(
-            "SnapDraw could not remove the temporary screenshot record.",
-            cleanupError,
-          );
-        }
+        // The capture record intentionally stays in IndexedDB: refreshing this
+        // tab, reopening it from the history list, and re-opening the same
+        // session URL all keep working. Storage is bounded by the history
+        // limit/retention in storage.service.ts.
       } catch (loadError) {
         if (cancelled) {
           return;
@@ -278,6 +271,39 @@ export function Editor() {
       description: "The screenshot is untouched – undo brings your notes back.",
     });
   }, [api, showToast]);
+
+  /**
+   * The history lives in the popup (it owns the capture list). Chrome 127+
+   * can open the action popup programmatically from a user gesture; elsewhere
+   * the user gets a toast telling them where to find it.
+   */
+  const handleShowHistory = useCallback((): void => {
+    const historyHint =
+      "Click the SnapDraw icon in the toolbar, then Screenshot history.";
+    const action = typeof chrome !== "undefined" ? chrome.action : undefined;
+    const openPopup = (
+      action as unknown as { openPopup?: () => Promise<void> } | undefined
+    )?.openPopup;
+
+    if (typeof openPopup === "function") {
+      openPopup.call(action).catch(() => {
+        showToast({
+          tone: "info",
+          title: "Screenshot history",
+          description: historyHint,
+          duration: 5000,
+        });
+      });
+      return;
+    }
+
+    showToast({
+      tone: "info",
+      title: "Screenshot history",
+      description: historyHint,
+      duration: 5000,
+    });
+  }, [showToast]);
 
   // Excalidraw's "?" shortcut opens its built-in help dialog, which links to
   // third-party Excalidraw pages. SnapDraw replaces those links, so the dialog is
@@ -396,6 +422,12 @@ export function Editor() {
               Clear annotations
             </MainMenu.Item>
             <MainMenu.Separator />
+            <MainMenu.Item
+              icon={<ClockIcon />}
+              onSelect={handleShowHistory}
+            >
+              Screenshot history
+            </MainMenu.Item>
             <MainMenu.ItemLink
               icon={<GitHubIcon />}
               href={SNAPDRAW_REPO_URL}

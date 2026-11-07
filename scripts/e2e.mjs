@@ -544,6 +544,24 @@ async function getSceneSummary(browser, page) {
   );
 }
 
+/** Number of captures saved in IndexedDB (the local history). */
+async function countStoredScreenshots(browser, sessionId) {
+  return browser.evaluate(
+    sessionId,
+    `new Promise((resolve) => {
+      const request = indexedDB.open("snapdraw");
+      request.onsuccess = () => {
+        const database = request.result;
+        if (!database.objectStoreNames.contains("screenshots")) { resolve(0); return; }
+        const count = database.transaction("screenshots", "readonly").objectStore("screenshots").count();
+        count.onsuccess = () => resolve(count.result);
+        count.onerror = () => resolve(-1);
+      };
+      request.onerror = () => resolve(-1);
+    })`,
+  );
+}
+
 /* -------------------------------------------------------------------------- */
 /* Input helpers                                                              */
 /* -------------------------------------------------------------------------- */
@@ -989,6 +1007,8 @@ async function main() {
             mentionsLocal: /local|never leave|nothing is uploaded/i.test(text),
             mentionsShortcut: /shortcut|Ctrl|⌘/i.test(text),
             version: document.querySelector(".sd-popup__version")?.textContent ?? "",
+            tagline: document.querySelector(".sd-popup__tagline")?.textContent?.trim() ?? "",
+            hasHistory: Boolean(document.querySelector('button[aria-label="Open screenshot history"]')),
           };
         })()`,
       );
@@ -996,6 +1016,12 @@ async function main() {
       check("shortcut hint is rendered", popupState.hasShortcutHint === true);
       check("local-only trust copy is present", popupState.mentionsLocal === true);
       check("version footer is rendered", /^v\d+\.\d+\.\d+$/.test(popupState.version.trim()), popupState.version);
+      check(
+        "tagline has no dash",
+        popupState.tagline === "Capture, annotate, share instantly.",
+        popupState.tagline,
+      );
+      check("screenshot history entry point is rendered", popupState.hasHistory === true);
       pages.popupShot = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
         width: 340,
         height: 560,
@@ -1095,21 +1121,42 @@ async function main() {
       );
       check("Excalidraw toolbar is present", scene.toolbar === true);
 
-      const remaining = await browser.evaluate(
-        editorOne.sessionId,
-        `new Promise((resolve) => {
-          const request = indexedDB.open("snapdraw");
-          request.onsuccess = () => {
-            const database = request.result;
-            if (!database.objectStoreNames.contains("screenshots")) { resolve(0); return; }
-            const count = database.transaction("screenshots", "readonly").objectStore("screenshots").count();
-            count.onsuccess = () => resolve(count.result);
-            count.onerror = () => resolve(-1);
-          };
-          request.onerror = () => resolve(-1);
-        })`,
+      const savedCount = await countStoredScreenshots(browser, editorOne.sessionId);
+      check("capture is saved for refresh and history", savedCount >= 1, `records=${savedCount}`);
+
+      // Refreshing the editor must bring the screenshot back – no error screen.
+      await browser.send("Page.reload", { ignoreCache: true }, editorOne.sessionId);
+      await waitFor(
+        async () => {
+          try {
+            return (
+              (await browser.evaluate(editorOne.sessionId, "document.readyState === 'complete'")) === true
+            );
+          } catch {
+            return false;
+          }
+        },
+        { label: "editor reload", timeoutMs: 30_000 },
       );
-      check("temporary session record is deleted after load", remaining === 0, `records=${remaining}`);
+      await setColorScheme(browser, editorOne.sessionId, "light");
+      await waitForEditorReady(browser, editorOne);
+      const refreshedCounts = await waitForCanvasColor(browser, editorOne, "magenta");
+      check(
+        "refreshing the editor keeps the screenshot",
+        refreshedCounts.magenta > 200,
+        `magenta=${refreshedCounts.magenta}`,
+      );
+      const refreshErrorText = await browser.evaluate(
+        editorOne.sessionId,
+        `document.querySelector(".sd-screen--error")?.innerText ?? ""`,
+      );
+      check(
+        "refresh no longer shows a missing-screenshot error",
+        refreshErrorText.length === 0,
+        refreshErrorText.replace(/\s+/g, " ").slice(0, 120),
+      );
+      const savedAfterRefresh = await countStoredScreenshots(browser, editorOne.sessionId);
+      check("capture is still saved after refresh", savedAfterRefresh >= 1, `records=${savedAfterRefresh}`);
 
       // The screenshot must survive an accidental delete: it starts locked.
       await browser.send("Target.activateTarget", { targetId: pages.editorOneTarget.targetId });
@@ -1535,6 +1582,178 @@ async function main() {
       await browser.send("Target.activateTarget", { targetId: pages.editorOneTarget.targetId });
       const firstCounts = await scanEditorCanvases(browser, editorOne);
       check("first editor keeps its own screenshot", firstCounts.magenta > 200, `magenta=${firstCounts.magenta}`);
+    });
+
+    /* ------------------------------------------------------------------ */
+    await step("Screenshot history lists saved captures and reopens them", async () => {
+      const secondSessionId = new URL(editorTwo.url).searchParams.get("session");
+
+      const openHistoryView = async () => {
+        const popup = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
+          width: 340,
+          height: 640,
+        });
+        await setColorScheme(browser, popup.sessionId, "light");
+        await waitForSelector(browser, popup.sessionId, 'button[aria-label="Open screenshot history"]');
+        const buttonText = await browser.evaluate(
+          popup.sessionId,
+          `document.querySelector('button[aria-label="Open screenshot history"]')?.textContent?.trim() ?? ""`,
+        );
+        await browser.evaluate(
+          popup.sessionId,
+          `document.querySelector('button[aria-label="Open screenshot history"]')?.click(); true`,
+        );
+        await waitForSelector(browser, popup.sessionId, ".sd-history__list");
+        return { popup, buttonText };
+      };
+
+      const first = await openHistoryView();
+      check(
+        "history entry point shows the number of saved captures",
+        first.buttonText.includes("2"),
+        first.buttonText,
+      );
+
+      const history = await browser.evaluate(
+        first.popup.sessionId,
+        `(() => {
+          const items = Array.from(document.querySelectorAll(".sd-history__item"));
+          return {
+            count: items.length,
+            rows: items.map((item) => {
+              const image = item.querySelector(".sd-history__thumb img");
+              return {
+                name: item.querySelector(".sd-history__name")?.textContent ?? "",
+                meta: item.querySelector(".sd-history__meta")?.textContent ?? "",
+                thumbLoaded: Boolean(image && image.complete && image.naturalWidth > 0),
+                deleteLabel: item.querySelector(".sd-history__delete")?.getAttribute("aria-label") ?? "",
+              };
+            }),
+          };
+        })()`,
+      );
+      check("history lists both captures", history.count === 2, `count=${history.count}`);
+      check(
+        "history is ordered newest first",
+        (history.rows[0]?.meta ?? "").includes("900 × 600") &&
+          (history.rows[1]?.meta ?? "").includes("1200 × 760"),
+        JSON.stringify(history.rows.map((row) => row.meta)),
+      );
+      check(
+        "history thumbnails render from local storage",
+        history.rows.every((row) => row.thumbLoaded === true),
+        JSON.stringify(history.rows.map((row) => row.thumbLoaded)),
+      );
+
+      const historyShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        first.popup.sessionId,
+      );
+      await writeFile(
+        path.join(screenshotsDir, "popup-history.png"),
+        Buffer.from(historyShot.data, "base64"),
+      );
+      check(
+        "history screenshot saved",
+        existsSync(path.join(screenshotsDir, "popup-history.png")),
+      );
+
+      // Reopen the newest capture from the history list.
+      const existingTargets = new Set();
+      for (const info of browser.targets.values()) {
+        if (info.type === "page") existingTargets.add(info.targetId);
+      }
+      await browser.evaluate(
+        first.popup.sessionId,
+        `document.querySelector(".sd-history__item .sd-history__open")?.click(); true`,
+      );
+      const reopened = await waitFor(
+        async () => {
+          for (const info of browser.targets.values()) {
+            if (info.type !== "page" || existingTargets.has(info.targetId)) continue;
+            if (
+              info.url.startsWith(
+                `chrome-extension://${extensionId}/src/editor/editor.html`,
+              )
+            ) {
+              return info;
+            }
+          }
+          return null;
+        },
+        { label: "history row opens an editor tab", timeoutMs: 20_000 },
+      );
+      const reopenedSession = new URL(reopened.url).searchParams.get("session");
+      check(
+        "history opens the selected capture in the editor",
+        reopenedSession === secondSessionId,
+        `${reopenedSession} vs ${secondSessionId}`,
+      );
+      await browser.send("Target.closeTarget", { targetId: reopened.targetId });
+      if (browser.targets.has(first.popup.targetId)) {
+        await browser.send("Target.closeTarget", { targetId: first.popup.targetId });
+      }
+
+      // Delete one entry, then clear the rest.
+      const second = await openHistoryView();
+      await browser.evaluate(
+        second.popup.sessionId,
+        `document.querySelector(".sd-history__item .sd-history__delete")?.click(); true`,
+      );
+      await waitFor(
+        async () =>
+          (await browser.evaluate(
+            second.popup.sessionId,
+            `document.querySelectorAll(".sd-history__item").length`,
+          )) === 1,
+        { label: "history entry deletion", timeoutMs: 15_000 },
+      );
+      check("deleting a history entry removes just that capture", true);
+
+      const remainingRow = await browser.evaluate(
+        second.popup.sessionId,
+        `(() => {
+          const item = document.querySelector(".sd-history__item");
+          return {
+            name: item?.querySelector(".sd-history__name")?.textContent ?? "",
+            meta: item?.querySelector(".sd-history__meta")?.textContent ?? "",
+          };
+        })()`,
+      );
+      check(
+        "the remaining history entry is the older capture",
+        (remainingRow.meta ?? "").includes("1200 × 760"),
+        `${remainingRow.name} · ${remainingRow.meta}`,
+      );
+
+      await browser.evaluate(
+        second.popup.sessionId,
+        `document.querySelector(".sd-history__clear")?.click(); true`,
+      );
+      await sleep(200);
+      await browser.evaluate(
+        second.popup.sessionId,
+        `document.querySelector(".sd-history__clear")?.click(); true`,
+      );
+      await waitForSelector(
+        browser,
+        second.popup.sessionId,
+        ".sd-history__empty",
+        "empty history state",
+      );
+      check("clearing the history empties the list", true);
+      const remainingAfterClear = await countStoredScreenshots(
+        browser,
+        second.popup.sessionId,
+      );
+      check(
+        "clearing the history removes the stored captures",
+        remainingAfterClear === 0,
+        `records=${remainingAfterClear}`,
+      );
+
+      await browser.send("Target.closeTarget", { targetId: second.popup.targetId });
     });
 
     /* ------------------------------------------------------------------ */

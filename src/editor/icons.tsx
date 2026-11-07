@@ -88,6 +88,16 @@ export function GitHubIcon(props: IconProps) {
   );
 }
 
+/** Clock mark for the screenshot-history menu item. */
+export function ClockIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <circle cx="8" cy="8" r="5.8" />
+      <path d="M8 4.9V8l2.1 1.3" />
+    </IconShell>
+  );
+}
+
 export function ExternalLinkIcon(props: IconProps) {
   return (
     <IconShell {...props}>

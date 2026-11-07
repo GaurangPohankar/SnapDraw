@@ -9,15 +9,18 @@ import "fake-indexeddb/auto";
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  clearScreenshots,
   closeDatabase,
   countScreenshots,
   deleteScreenshot,
   getScreenshot,
+  HISTORY_LIMIT,
+  HISTORY_RETENTION_MS,
   listScreenshots,
   purgeExpiredScreenshots,
   putScreenshot,
+  trimScreenshots,
 } from "../src/services/storage.service";
-import { SESSION_TTL_MS } from "../src/utils/messaging";
 import type { ScreenshotRecord } from "../src/types";
 
 const DATABASE_NAME = "snapdraw";
@@ -232,12 +235,12 @@ describe("screenshot storage", () => {
     await expect(countScreenshots()).resolves.toBe(2);
   });
 
-  it("uses the 10 minute session TTL by default", async () => {
+  it("uses the 30 day history retention by default", async () => {
     const now = Date.now();
     await putScreenshot(
       makeRecord({
         id: "stale",
-        createdAt: now - SESSION_TTL_MS - 10_000,
+        createdAt: now - HISTORY_RETENTION_MS - 10_000,
       }),
     );
     await putScreenshot(makeRecord({ id: "fresh", createdAt: now }));
@@ -245,6 +248,54 @@ describe("screenshot storage", () => {
     await expect(purgeExpiredScreenshots()).resolves.toBe(1);
     const remaining = await listScreenshots();
     expect(remaining.map((meta) => meta.id)).toEqual(["fresh"]);
+  });
+
+  it("includes the stored thumbnail in history rows (never the full blob)", async () => {
+    const thumbnail = blobOf(new Uint8Array([9, 8, 7, 6]));
+    await putScreenshot(makeRecord({ id: "with-thumb", thumbnail }));
+    await putScreenshot(makeRecord({ id: "without-thumb", createdAt: 2_000 }));
+
+    const entries = await listScreenshots();
+    const withThumb = entries.find((entry) => entry.id === "with-thumb");
+    const withoutThumb = entries.find((entry) => entry.id === "without-thumb");
+
+    expect(withThumb?.thumbnail).toBeInstanceOf(Blob);
+    expect(withThumb?.thumbnail?.size).toBe(4);
+    expect(withoutThumb?.thumbnail).toBeUndefined();
+    for (const entry of entries) {
+      expect(entry).not.toHaveProperty("blob");
+    }
+  });
+
+  it("trims the history to the newest N entries", async () => {
+    for (let index = 0; index < 5; index += 1) {
+      await putScreenshot(
+        makeRecord({ id: `capture-${index}`, createdAt: 1_000 + index }),
+      );
+    }
+
+    // 5 stored, limit 3 → the two oldest are removed.
+    await expect(trimScreenshots(3)).resolves.toBe(2);
+    const remaining = await listScreenshots();
+    expect(remaining.map((entry) => entry.id)).toEqual([
+      "capture-4",
+      "capture-3",
+      "capture-2",
+    ]);
+
+    // Already under the limit: no-op.
+    await expect(trimScreenshots(3)).resolves.toBe(0);
+    await expect(trimScreenshots(HISTORY_LIMIT)).resolves.toBe(0);
+  });
+
+  it("clears the entire history", async () => {
+    await putScreenshot(makeRecord({ id: "one" }));
+    await putScreenshot(makeRecord({ id: "two", createdAt: 2_000 }));
+
+    await clearScreenshots();
+
+    await expect(countScreenshots()).resolves.toBe(0);
+    await expect(listScreenshots()).resolves.toHaveLength(0);
   });
 
   it("counts stored screenshots", async () => {

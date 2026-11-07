@@ -5,7 +5,7 @@ export function Header() {
   return (
     <header className="sd-popup__header">
       <Logo size={30} withWordmark />
-      <p className="sd-popup__tagline">Capture, annotate, share — instantly.</p>
+      <p className="sd-popup__tagline">Capture, annotate, share instantly.</p>
     </header>
   );
 }

@@ -16,9 +16,6 @@ export const SESSION_QUERY_PARAM = "session";
 /** Query parameter used to surface an error state in the editor tab. */
 export const ERROR_QUERY_PARAM = "error";
 
-/** How long a captured screenshot may wait for the editor to load it. */
-export const SESSION_TTL_MS = 10 * 60 * 1000;
-
 /** Thrown by extension side helpers so the UI can show friendly copy. */
 export class SnapDrawError extends Error {
   readonly code: CaptureErrorCode;

@@ -26,6 +26,7 @@ import {
   deleteScreenshot,
   purgeExpiredScreenshots,
   putScreenshot,
+  trimScreenshots,
 } from "./storage.service";
 
 /**
@@ -34,6 +35,12 @@ import {
  * records.
  */
 export const MAX_CAPTURE_EDGE = 8192;
+
+/**
+ * Longest edge of the small preview stored for the history list. 320px keeps
+ * the overview readable while costing only a few KB per capture.
+ */
+const THUMBNAIL_MAX_EDGE = 320;
 
 /** Why a page cannot be captured. */
 export type RestrictedPageReason =
@@ -291,17 +298,24 @@ async function discardStoredScreenshot(sessionId: string): Promise<void> {
   }
 }
 
-/** Removes sessions the editor never consumed. Never throws. */
+/**
+ * Prunes the local screenshot history: drops captures older than the retention
+ * window and keeps only the newest `HISTORY_LIMIT` entries. Never throws.
+ */
 export async function purgeExpiredSessions(): Promise<number> {
   try {
-    const removed = await purgeExpiredScreenshots();
+    const expired = await purgeExpiredScreenshots();
+    const trimmed = await trimScreenshots();
+    const removed = expired + trimmed;
     if (removed > 0) {
-      console.log(`[SnapDraw] purged ${removed} expired screenshot session(s)`);
+      console.log(
+        `[SnapDraw] pruned ${removed} old screenshot(s) (${expired} expired, ${trimmed} over the history limit)`,
+      );
     }
     return removed;
   } catch (error) {
     console.warn(
-      `[SnapDraw] could not purge expired screenshots: ${describeErrorForLog(error)}`,
+      `[SnapDraw] could not prune the screenshot history: ${describeErrorForLog(error)}`,
     );
     return 0;
   }
@@ -426,6 +440,52 @@ function assertSupportedSize(width: number, height: number): void {
   }
 }
 
+/**
+ * Renders a small PNG preview for the history list.
+ *
+ * Thumbnails are a nicety: if the canvas APIs are unavailable (or the pixels
+ * cannot be read), the capture still succeeds and the history shows a
+ * placeholder instead.
+ */
+async function createThumbnail(
+  blob: Blob,
+  width: number,
+  height: number,
+): Promise<Blob | undefined> {
+  try {
+    if (
+      typeof OffscreenCanvas === "undefined" ||
+      typeof createImageBitmap !== "function"
+    ) {
+      return undefined;
+    }
+
+    const scale = Math.min(1, THUMBNAIL_MAX_EDGE / Math.max(width, height));
+    const thumbnailWidth = Math.max(1, Math.round(width * scale));
+    const thumbnailHeight = Math.max(1, Math.round(height * scale));
+
+    const bitmap = await createImageBitmap(blob);
+    try {
+      const canvas = new OffscreenCanvas(thumbnailWidth, thumbnailHeight);
+      const context = canvas.getContext("2d");
+      if (!context) {
+        return undefined;
+      }
+      context.drawImage(bitmap, 0, 0, thumbnailWidth, thumbnailHeight);
+      return await canvas.convertToBlob({ type: "image/png" });
+    } finally {
+      if (typeof bitmap.close === "function") {
+        bitmap.close();
+      }
+    }
+  } catch (error) {
+    console.debug(
+      `[SnapDraw] thumbnail generation skipped: ${describeErrorForLog(error)}`,
+    );
+    return undefined;
+  }
+}
+
 async function saveScreenshot(record: ScreenshotRecord): Promise<void> {
   try {
     await putScreenshot(record);
@@ -490,8 +550,11 @@ async function runCapture(source: CaptureSource): Promise<CaptureResponse> {
   const { width, height } = await readScreenshotSize(blob);
   assertSupportedSize(width, height);
 
-  // 5. Persist the record under a fresh UUID session.
+  // 5. Persist the record (and a small preview) under a fresh UUID session.
+  //    The record is kept afterwards: the editor can be refreshed, and the
+  //    capture stays available from the history list.
   const sessionId = crypto.randomUUID();
+  const thumbnail = await createThumbnail(blob, width, height);
   const record: ScreenshotRecord = {
     id: sessionId,
     name: buildScreenshotName(),
@@ -501,6 +564,7 @@ async function runCapture(source: CaptureSource): Promise<CaptureResponse> {
     mimeType: "image/png",
     size: blob.size,
     blob,
+    ...(thumbnail ? { thumbnail } : {}),
     ...(tab.url ? { sourceUrl: tab.url } : {}),
     ...(tab.title ? { sourceTitle: tab.title } : {}),
   };
@@ -510,7 +574,7 @@ async function runCapture(source: CaptureSource): Promise<CaptureResponse> {
   //    record is deleted inside `openEditorTab`.
   const editorTabId = await openEditorTab(sessionId);
 
-  // 7. Opportunistically clean up sessions the editor never consumed.
+  // 7. Opportunistically prune old captures so history stays bounded.
   void purgeExpiredSessions();
 
   console.debug(
