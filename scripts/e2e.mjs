@@ -77,6 +77,7 @@ function parseCli(argv) {
 
 const checks = [];
 const consoleErrors = [];
+const canvasWarnings = [];
 
 function check(name, condition, detail) {
   const status = condition ? "pass" : "fail";
@@ -350,6 +351,11 @@ class Browser {
             .map((arg) => arg.value ?? arg.description ?? arg.type)
             .join(" "),
         );
+      } else if (message.method === "Log.entryAdded") {
+        const text = message.params.entry?.text ?? "";
+        if (/willReadFrequently|Multiple readback operations/i.test(text)) {
+          canvasWarnings.push(`${message.params.entry?.level ?? "warning"}: ${text}`);
+        }
       }
     });
     await connection.send("Target.setDiscoverTargets", { discover: true });
@@ -2251,6 +2257,7 @@ async function main() {
       const videoUrl = `chrome-extension://${extensionId}/src/video/video.html?session=${seeded.id}`;
       const videoPage = await openPage(browser, videoUrl, { width: 1200, height: 760 });
       await setColorScheme(browser, videoPage.sessionId, "light");
+      await browser.send("Log.enable", {}, videoPage.sessionId);
       await waitForSelector(browser, videoPage.sessionId, "video.sd-video__player");
       const videoState = await waitFor(
         async () =>
@@ -2304,6 +2311,46 @@ async function main() {
         { x: centerX + 110, y: centerY + 60 },
       );
       await sleep(400);
+
+      // The eyedropper reads 1x1 px from Excalidraw's canvas on every pointer
+      // move; without the willReadFrequently shim Chrome logs its Canvas2D
+      // advisory. Exercise the real eyedropper and assert the log stays clean.
+      canvasWarnings.length = 0;
+      await pressKey(browser, videoPage, "s", "KeyS", 83);
+      await sleep(300);
+      const eyedropperReady = await browser.evaluate(
+        videoPage.sessionId,
+        `Boolean(document.querySelector(".excalidraw-eye-dropper-trigger"))`,
+      );
+      if (eyedropperReady) {
+        await browser.evaluate(
+          videoPage.sessionId,
+          `document.querySelector(".excalidraw-eye-dropper-trigger")?.click(); true`,
+        );
+        for (let step = 0; step < 5; step += 1) {
+          await browser.send(
+            "Input.dispatchMouseEvent",
+            {
+              type: "mouseMoved",
+              x: centerX - 60 + step * 20,
+              y: centerY - 40,
+              button: "none",
+            },
+            videoPage.sessionId,
+          );
+          await sleep(80);
+        }
+        await sleep(300);
+      }
+      await pressKey(browser, videoPage, "Escape", "Escape", 27);
+      await sleep(150);
+      await pressKey(browser, videoPage, "Escape", "Escape", 27);
+      await sleep(200);
+      check(
+        "eyedropper readback does not log Chrome's Canvas2D advisory",
+        eyedropperReady === true && canvasWarnings.length === 0,
+        eyedropperReady ? canvasWarnings[0] ?? "clean" : "eyedropper trigger not found",
+      );
 
       // "Clear annotations" is only enabled when the scene has annotations.
       await browser.evaluate(

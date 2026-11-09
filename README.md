@@ -468,7 +468,7 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (114 checks, all driven through real input events and real downloads):
+It verifies (115 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, record-video action, shortcut hint, local-only copy, version,
@@ -502,6 +502,8 @@ It verifies (114 checks, all driven through real input events and real downloads
 - the **video editor** loads a real WebM, mounts the transparent Excalidraw overlay over the video,
   accepts a drawn annotation, copies the annotated frame to the clipboard, and **exports a valid
   annotated WebM** (EBML header checked) from a real-time render;
+- the video editor's colour eyedropper reads real canvas pixels on pointer move **without** Chrome
+  logging its `Canvas2D … getImageData` / `willReadFrequently` advisory (browser log asserted clean);
 - history and the recent preview mark recordings with a **video camera icon** and screenshots with an
   **image icon**, show durations, and reopen the recording in the video editor;
 - the service worker reports idle/recording state, and the recording pipeline is exercised downstream
