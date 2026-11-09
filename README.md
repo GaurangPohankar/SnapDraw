@@ -266,7 +266,7 @@ for `tabCapture`).
 | `npm run build:only` | Same as `build` without the TypeScript check (faster iteration). |
 | `npm run dev` | Watch-mode development build. |
 | `npm run typecheck` | `tsc --noEmit` across the whole project. |
-| `npm test` | Vitest unit + invariant suite (175 tests: storage/history, image & video helpers, recording service, messaging, manifest, capture/export services). |
+| `npm test` | Vitest unit + invariant suite (180 tests: storage/history, image & video helpers, recording service, messaging, manifest, capture/export services, canvas readback shim). |
 | `npm run test:e2e` | Drives the **built** extension in headless Chrome via CDP: capture → editor → annotate → undo/redo → clipboard → download → history/preview → video editor + annotated WebM export → multi-capture isolation → restricted-page errors → local-only audit. Writes `test-results/e2e-report.json` and `docs/screenshots/*.png`. |
 | `npm run verify` | `build` + `test` + `test:e2e`. |
 | `npm run icons` | Regenerates `public/icons/icon{16,48,128}.png` from the logo geometry (no image dependency). |
@@ -437,7 +437,7 @@ pages.
 
 ### Unit & invariant tests (`npm test`)
 
-175 tests across eight suites, no network and no real Chrome:
+180 tests across nine suites, no network and no real Chrome:
 
 - `tests/storage.test.ts` – IndexedDB round-trips (multi-MB `Blob` byte-exact), isolation of three
   concurrent sessions, history listing + thumbnails, retention/TTL purge, history trimming and
@@ -456,6 +456,9 @@ pages.
   detection, MediaRecorder mime selection, missing-recording errors.
 - `tests/recording.service.test.ts` – recording naming, `tabCapture` stream-id handover + error mapping,
   and persisting a finished WebM as a `kind: "video"` history record with duration.
+- `tests/canvas-readback.test.ts` – the narrow `getImageData` shim used for Excalidraw's eyedropper:
+  tiny reads are routed through a `willReadFrequently` scratch canvas, everything else (large,
+  out-of-bounds, non-Excalidraw canvases, missing browser APIs) falls through untouched.
 
 ### End-to-end tests (`npm run test:e2e`)
 
@@ -465,7 +468,7 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (113 checks, all driven through real input events and real downloads):
+It verifies (114 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, record-video action, shortcut hint, local-only copy, version,
@@ -506,7 +509,9 @@ It verifies (113 checks, all driven through real input events and real downloads
   start-recording gesture is a manual check — see *Recording a video* above);
 - extension pages produce the friendly restricted-page error with retry; missing/expired sessions and
   `?error=` messages show recoverable error screens;
-- light + dark editor screenshots (and the video editor screenshot) are written to `docs/screenshots/`.
+- light + dark editor screenshots (and the video editor screenshot) are written to `docs/screenshots/`;
+  the dark-mode check also asserts that the capture's fixture colours (yellow band, magenta body)
+  survive in the editor rather than being shifted by Excalidraw's dark filter.
 
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`, `docs/screenshots/*.png`.
 
