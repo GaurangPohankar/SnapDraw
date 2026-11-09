@@ -94,9 +94,22 @@ body {
  * Dark mode inverts Excalidraw's canvases with a CSS filter. The frame/video
  * export reads raw canvas pixels (CSS filters are not part of the bitmap), so
  * the filter is switched off on the overlay: what the user sees over the video
- * is exactly what gets exported.
+ * is exactly what gets exported. For the same reason Excalidraw's colour
+ * swatches are unfiltered — a filtered swatch would show a different colour
+ * than the annotation it produces on the unfiltered canvas.
  */
 .sd-video__overlay .excalidraw.theme--dark canvas {
+  filter: none !important;
+}
+
+.sd-video__overlay .excalidraw.theme--dark .color-picker__button,
+.sd-video__overlay .excalidraw.theme--dark .color-picker__button:hover::after,
+.sd-video__overlay .excalidraw.theme--dark
+  .color-picker__button.active
+  .color-picker__button-outline,
+.sd-video__overlay .excalidraw.theme--dark .color-picker-swatch,
+.sd-video__overlay .excalidraw.theme--dark .color-picker-label-swatch,
+.sd-video__overlay .excalidraw.theme--dark .excalidraw-eye-dropper-preview {
   filter: none !important;
 }
 

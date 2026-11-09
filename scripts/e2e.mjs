@@ -2673,6 +2673,64 @@ async function main() {
         darkColors.yellow > 500 && darkColors.magenta > 500,
         `yellow=${darkColors.yellow} magenta=${darkColors.magenta}`,
       );
+
+      // Swatches must show the colour they will actually paint. Excalidraw
+      // normally inverts swatches together with its dark canvas filter; SnapDraw
+      // keeps the canvas unfiltered, so a filtered swatch would swap black and
+      // white and lie about every other colour. Select the annotations with
+      // Ctrl+A so the shape/properties panel (and its stroke colour trigger) is
+      // mounted.
+      const selectAll = {
+        key: "a",
+        code: "KeyA",
+        windowsVirtualKeyCode: 65,
+        nativeVirtualKeyCode: 65,
+        modifiers: 2,
+      };
+      await browser.send(
+        "Input.dispatchKeyEvent",
+        { ...selectAll, type: "rawKeyDown" },
+        editorOne.sessionId,
+      );
+      await browser.send(
+        "Input.dispatchKeyEvent",
+        { ...selectAll, type: "keyUp" },
+        editorOne.sessionId,
+      );
+      await sleep(300);
+      await browser.evaluate(
+        editorOne.sessionId,
+        `document.querySelector(".excalidraw .properties-trigger")?.click(); true`,
+      );
+      await sleep(350);
+      const palette = await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const buttons = Array.from(document.querySelectorAll(".excalidraw .color-picker__button"));
+          const swatches = buttons
+            .map((button) => (button.style.getPropertyValue("--swatch-color") || "").trim())
+            .filter(Boolean);
+          const filtered = buttons
+            .map((button) => getComputedStyle(button).filter)
+            .filter((value) => value !== "none");
+          return {
+            count: buttons.length,
+            hasWhite: swatches.includes("#ffffff"),
+            hasBlack: swatches.includes("#1e1e1e"),
+            filtered: filtered.slice(0, 3),
+          };
+        })()`,
+      );
+      check(
+        "dark-mode stroke palette shows true black and white swatches",
+        palette.count >= 10 && palette.hasWhite === true && palette.hasBlack === true && palette.filtered.length === 0,
+        JSON.stringify(palette),
+      );
+      await pressKey(browser, editorOne, "Escape", "Escape", 27);
+      await sleep(300);
+      await clickAt(browser, editorOne, 640, 520);
+      await sleep(200);
+
       check("editor screenshots saved", existsSync(path.join(screenshotsDir, "editor-dark.png")));
 
       await setColorScheme(browser, editorOne.sessionId, "light");
