@@ -2209,6 +2209,13 @@ async function main() {
           /locally/i.test(recorderState.note),
         JSON.stringify(recorderState),
       );
+      // Screenshot at the recorder window's real size for the docs.
+      await browser.send(
+        "Emulation.setDeviceMetricsOverride",
+        { width: 460, height: 400, deviceScaleFactor: 1, mobile: false },
+        recorderSession,
+      );
+      await sleep(250);
       const recorderShot = await browser.send(
         "Page.captureScreenshot",
         { format: "png" },
