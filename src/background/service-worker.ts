@@ -21,6 +21,7 @@ import type {
   OffscreenStatusResult,
   OffscreenStopResult,
   RecordingSource,
+  RecordingStartedEvent,
   RecordingStatus,
   RecordingStatusResponse,
   SnapDrawErrorPayload,
@@ -401,12 +402,20 @@ async function handleStartRecording(
     if (!result?.ok) {
       await setRecordingBadge(false);
       await closeOffscreenSafely();
+      const failedMessage = result?.message ?? "";
+      const friendlyMessage =
+        request.source === "desktop" &&
+        /error starting tab capture|could not start|not supported/i.test(failedMessage)
+          ? "Chrome couldn't start the screen recording."
+          : failedMessage || "SnapDraw couldn't start recording.";
       return {
         ok: false,
         error: errorPayload(
           "CAPTURE_FAILED",
-          result?.message ?? "SnapDraw couldn't start recording.",
-          "Make sure the source is a normal website/tab, then try again.",
+          friendlyMessage,
+          request.source === "desktop"
+            ? "Answer Chrome's screen picker (choose a window if the whole screen fails), then try again."
+            : "Make sure the source is a normal website/tab, then try again.",
         ),
       };
     }
@@ -493,23 +502,37 @@ chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) =
   };
 
   // A recording finished on its own (source tab closed / sharing stopped).
-  if (
-    envelope.target === "snapdraw-sw" &&
-    envelope.type === "recording:saved" &&
-    typeof envelope.sessionId === "string"
-  ) {
-    void (async () => {
-      await closeOffscreenSafely();
-      await setRecordingBadge(false);
-      try {
-        await chrome.tabs.create({
-          url: buildVideoEditorUrl(envelope.sessionId as string),
-          active: true,
-        });
-      } catch (error) {
-        logActionError("open video editor", error);
-      }
-    })();
+  if (envelope.target === "snapdraw-sw") {
+    // A recording finished on its own or was stopped in the screen recorder.
+    if (envelope.type === "recording:saved" && typeof envelope.sessionId === "string") {
+      void (async () => {
+        await closeOffscreenSafely();
+        await setRecordingBadge(false);
+        try {
+          await chrome.tabs.create({
+            url: buildVideoEditorUrl(envelope.sessionId as string),
+            active: true,
+          });
+        } catch (error) {
+          logActionError("open video editor", error);
+        }
+      })();
+      return undefined;
+    }
+
+    // The visible screen-share window started recording.
+    if (envelope.type === "recording:started") {
+      const started = message as RecordingStartedEvent;
+      void setRecordingBadge(true, started.source);
+      return undefined;
+    }
+
+    // The screen recorder was cancelled before anything was saved.
+    if (envelope.type === "recording:cancelled") {
+      void setRecordingBadge(false);
+      return undefined;
+    }
+
     return undefined;
   }
 

@@ -2154,17 +2154,10 @@ async function main() {
       await waitForSelector(browser, popup.sessionId, 'button[aria-label="Record whole screen"]');
       const recordApi = await browser.evaluate(
         popup.sessionId,
-        `({
-          tabCapture: typeof chrome.tabCapture?.getMediaStreamId === "function",
-          desktopCapture: typeof chrome.desktopCapture?.chooseDesktopMedia === "function",
-        })`,
+        `({ tabCapture: typeof chrome.tabCapture?.getMediaStreamId === "function" })`,
       );
       check("popup offers tab and whole-screen recording", true);
       check("tabCapture API is available to the extension", recordApi.tabCapture === true);
-      check(
-        "desktopCapture API is available to the extension",
-        recordApi.desktopCapture === true,
-      );
 
       // Recording is orchestrated by the service worker + offscreen document.
       const idleRecording = await browser.evaluate(
@@ -2177,15 +2170,67 @@ async function main() {
         JSON.stringify(idleRecording),
       );
 
-      // Note: actually starting a tab/desktop recording cannot be exercised in
-      // headless Chrome (no capture stream support; the media request stalls the
-      // extension). The recording handover is a documented manual test; the
-      // editor/export/history pipeline below is verified with a real WebM.
-      check(
-        "service worker reports an idle recording state",
-        idleRecording?.ok === true && idleRecording?.status?.recording === false,
-        JSON.stringify(idleRecording),
+      // "Whole screen" opens the screen-share window (a visible page is required
+      // for Chrome's getDisplayMedia picker). Test it on its own popup page since
+      // the popup closes itself after creating the window.
+      const screenPopup = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
+        width: 340,
+        height: 640,
+      });
+      await waitForSelector(browser, screenPopup.sessionId, 'button[aria-label="Record whole screen"]');
+      await browser.evaluate(
+        screenPopup.sessionId,
+        `document.querySelector('button[aria-label="Record whole screen"]')?.click(); true`,
       );
+      const recorderTarget = await waitFor(
+        async () => {
+          for (const info of browser.targets.values()) {
+            if (info.type === "page" && info.url.includes("/src/recorder/recorder.html")) {
+              return info;
+            }
+          }
+          return null;
+        },
+        { label: "screen recorder window", timeoutMs: 15_000 },
+      );
+      check("whole screen opens the screen recorder window", Boolean(recorderTarget));
+      const recorderSession = await browser.attach(recorderTarget.targetId);
+      await waitForSelector(browser, recorderSession, "#start");
+      const recorderState = await browser.evaluate(
+        recorderSession,
+        `({
+          start: document.querySelector("#start")?.textContent?.trim() ?? "",
+          note: document.querySelector(".sd-rec__note")?.textContent?.trim() ?? "",
+        })`,
+      );
+      check(
+        "screen recorder asks the user to start sharing",
+        /Start sharing/i.test(recorderState.start) &&
+          /locally/i.test(recorderState.note),
+        JSON.stringify(recorderState),
+      );
+      const recorderShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        recorderSession,
+      );
+      await writeFile(
+        path.join(screenshotsDir, "screen-recorder.png"),
+        Buffer.from(recorderShot.data, "base64"),
+      );
+      check(
+        "screen recorder screenshot saved",
+        existsSync(path.join(screenshotsDir, "screen-recorder.png")),
+      );
+      await browser.send("Target.closeTarget", { targetId: recorderTarget.targetId });
+      if (browser.targets.has(screenPopup.targetId)) {
+        await browser.send("Target.closeTarget", { targetId: screenPopup.targetId });
+      }
+
+      // Note: actually starting a capture cannot be exercised in headless Chrome
+      // (no capture stream support). The recording handover is a documented
+      // manual test; the editor/export/history pipeline below is verified with a
+      // real WebM.
 
       // Seed a real WebM recording so the editor can be tested deterministically.
       const seeded = await browser.evaluate(popup.sessionId, SEED_VIDEO_EXPRESSION);

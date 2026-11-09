@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>SnapDraw Screen Recorder</title>
+  </head>
+  <body>
+    <main class="sd-rec">
+      <header class="sd-rec__header">
+        <h1 class="sd-rec__title">Record your screen</h1>
+        <p class="sd-rec__subtitle">
+          Choose a screen or window in Chrome's picker. Recording continues while this
+          window is open.
+        </p>
+      </header>
+
+      <div class="sd-rec__status" id="status" role="status" aria-live="polite">
+        <span class="sd-rec__dot" id="dot" aria-hidden="true"></span>
+        <span class="sd-rec__status-text" id="status-text">Ready to record</span>
+        <span class="sd-rec__timer" id="timer" hidden>0:00</span>
+      </div>
+
+      <p class="sd-rec__error" id="error" role="alert" hidden></p>
+
+      <div class="sd-rec__actions">
+        <button type="button" class="sd-rec__button sd-rec__button--start" id="start">
+          Start sharing
+        </button>
+        <button type="button" class="sd-rec__button sd-rec__button--stop" id="stop" hidden>
+          Stop and open editor
+        </button>
+        <button type="button" class="sd-rec__button sd-rec__button--cancel" id="cancel" hidden>
+          Cancel
+        </button>
+      </div>
+
+      <p class="sd-rec__note">
+        SnapDraw saves the recording locally and opens the video editor when you stop.
+      </p>
+    </main>
+    <script type="module" src="./recorder.ts"></script>
+  </body>
+</html>

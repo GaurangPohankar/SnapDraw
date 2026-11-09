@@ -126,58 +126,6 @@ async function thumbnailFromRecording(blob: Blob): Promise<Blob | undefined> {
 }
 
 /**
- * Asks Chrome to pick a screen/window and returns a desktop-capture stream id.
- *
- * Must be called from an extension page in response to a user gesture (the
- * popup's "Whole screen" button); Chrome shows its own picker, and returning an
- * empty id means the user cancelled.
- */
-export async function requestDesktopStreamId(): Promise<string> {
-  const desktopCapture = chrome.desktopCapture as unknown as
-    | {
-        chooseDesktopMedia?: (
-          sources: string[],
-          callback: (streamId?: string) => void,
-        ) => number;
-      }
-    | undefined;
-
-  if (typeof desktopCapture?.chooseDesktopMedia !== "function") {
-    throw new SnapDrawError(
-      "CAPTURE_FAILED",
-      "Screen recording is not available in this browser.",
-      "Update Chrome to a recent version and try again.",
-    );
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    try {
-      desktopCapture.chooseDesktopMedia!(["screen", "window"], (streamId) => {
-        if (!streamId) {
-          reject(
-            new SnapDrawError(
-              "CAPTURE_FAILED",
-              "Screen recording was cancelled.",
-              "Pick a screen or window to record, then try again.",
-            ),
-          );
-          return;
-        }
-        resolve(streamId);
-      });
-    } catch (error) {
-      reject(
-        new SnapDrawError(
-          "CAPTURE_FAILED",
-          "SnapDraw couldn't ask Chrome for the screen.",
-          error instanceof Error ? error.message : "Please try again.",
-        ),
-      );
-    }
-  });
-}
-
-/**
  * Stores a finished recording (with thumbnail/duration) and returns its session
  * id so the caller can open the video editor.
  */

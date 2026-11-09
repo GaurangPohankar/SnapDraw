@@ -96,6 +96,7 @@ async function main() {
   for (const [label, relativePath] of [
     ["video editor", ["src", "video", "video.html"]],
     ["offscreen recorder", ["src", "offscreen", "offscreen.html"]],
+    ["screen recorder", ["src", "recorder", "recorder.html"]],
   ]) {
     if (!(await exists(path.join(dist, ...relativePath)))) {
       fail(`dist/${relativePath.join("/")} is missing (${label} page).`);
@@ -121,7 +122,6 @@ async function main() {
   const allowed = new Set([
     "activeTab",
     "clipboardWrite",
-    "desktopCapture",
     "offscreen",
     "tabCapture",
   ]);
@@ -139,7 +139,6 @@ async function main() {
   for (const required of [
     "activeTab",
     "clipboardWrite",
-    "desktopCapture",
     "offscreen",
     "tabCapture",
   ]) {

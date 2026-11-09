@@ -14,6 +14,8 @@ import type {
 export const POPUP_PAGE_PATH = "src/popup/popup.html";
 export const EDITOR_PAGE_PATH = "src/editor/editor.html";
 export const VIDEO_EDITOR_PAGE_PATH = "src/video/video.html";
+/** Visible screen-share window used for "Whole screen" recording. */
+export const SCREEN_RECORDER_PAGE_PATH = "src/recorder/recorder.html";
 /** Hidden document that keeps the recording alive while the popup is closed. */
 export const OFFSCREEN_PAGE_PATH = "src/offscreen/offscreen.html";
 
@@ -90,6 +92,11 @@ export function buildVideoEditorUrl(sessionId: string): string {
   const url = new URL(extensionPageUrl(VIDEO_EDITOR_PAGE_PATH));
   url.searchParams.set(SESSION_QUERY_PARAM, sessionId);
   return url.toString();
+}
+
+/** Absolute URL of the screen-share recorder window page. */
+export function screenRecorderUrl(): string {
+  return extensionPageUrl(SCREEN_RECORDER_PAGE_PATH);
 }
 
 /** Reads the session id from an editor page URL. */

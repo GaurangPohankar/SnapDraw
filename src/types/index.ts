@@ -115,6 +115,19 @@ export interface RecordingSavedEvent {
   name: string;
 }
 
+/** Event sent by the visible screen-share recorder when it starts recording. */
+export interface RecordingStartedEvent {
+  target: "snapdraw-sw";
+  type: "recording:started";
+  source: RecordingSource;
+}
+
+/** Event sent by the screen-share recorder when the user cancels/discards. */
+export interface RecordingCancelledEvent {
+  target: "snapdraw-sw";
+  type: "recording:cancelled";
+}
+
 /** Stable, machine readable error codes. */
 export type CaptureErrorCode =
   | "RESTRICTED_PAGE"

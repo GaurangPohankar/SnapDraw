@@ -1,4 +1,4 @@
-﻿import { defineConfig } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 /**
@@ -39,6 +39,7 @@ export default defineConfig(({ mode }) => {
           editor: "src/editor/editor.html",
           video: "src/video/video.html",
           offscreen: "src/offscreen/offscreen.html",
+          recorder: "src/recorder/recorder.html",
           background: "src/background/service-worker.ts",
         },
         output: {

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../components/Button";
 import { ToastViewport, useToast } from "../components/Toast";
-import { getTabCaptureStreamId, requestDesktopStreamId } from "../services/recording.service";
+import { getTabCaptureStreamId } from "../services/recording.service";
 import { classifyTabUrl } from "../services/screenshot.service";
 import { formatDuration } from "../services/video.service";
 import type { RecordingSource, RecordingStatus } from "../types";
 import {
   getRecordingStatus,
   isExtensionContext,
+  screenRecorderUrl,
   startRecording,
   stopRecording,
 } from "../utils/messaging";
@@ -87,6 +88,7 @@ export function Popup() {
   const [recording, setRecording] = useState<RecordingStatus>(IDLE_RECORDING);
   const [elapsedMs, setElapsedMs] = useState(0);
   const [stopping, setStopping] = useState(false);
+  const [screenRecordingActive, setScreenRecordingActive] = useState(false);
   const {
     recent,
     total: historyTotal,
@@ -99,8 +101,21 @@ export function Popup() {
     let cancelled = false;
     void (async () => {
       const response = await getRecordingStatus();
-      if (!cancelled && response.ok) {
+      if (cancelled) {
+        return;
+      }
+      if (response.ok) {
         setRecording(response.status);
+        if (!response.status.recording) {
+          try {
+            const badge = await chrome.action.getBadgeText({});
+            if (!cancelled) {
+              setScreenRecordingActive(badge === "REC");
+            }
+          } catch {
+            // Badge API unavailable in preview mode.
+          }
+        }
       }
     })();
     return () => {
@@ -175,70 +190,101 @@ export function Popup() {
   }, [capture, isPreview, recording.recording, status, view]);
 
   /**
-   * Starts a background recording. The popup only hands over a capture stream
-   * id; the service worker + offscreen document keep recording after the popup
-   * closes, so the same tab does not need to stay open.
+   * Starts a background tab recording. The popup only hands over a tab-capture
+   * stream id; the service worker + offscreen document keep recording after the
+   * popup closes, so the recorded tab does not need to stay open.
    */
-  const beginRecording = useCallback(
-    async (source: RecordingSource): Promise<void> => {
-      if (isPreview || startingSource !== null) {
-        return;
+  const beginTabRecording = useCallback(async (): Promise<void> => {
+    if (isPreview || startingSource !== null) {
+      return;
+    }
+
+    setStartingSource("tab");
+    setRecordError(null);
+
+    try {
+      if (!isExtensionContext()) {
+        throw new Error("Video recording needs the SnapDraw extension.");
       }
 
-      setStartingSource(source);
-      setRecordError(null);
+      const tabs = await chrome.tabs.query({
+        active: true,
+        lastFocusedWindow: true,
+      });
+      const tab = tabs[0];
+      if (!tab?.id) {
+        throw new Error("SnapDraw couldn't find the active tab.");
+      }
 
-      try {
-        if (!isExtensionContext()) {
-          throw new Error("Video recording needs the SnapDraw extension.");
-        }
-
-        let streamId: string;
-
-        if (source === "tab") {
-          const tabs = await chrome.tabs.query({
-            active: true,
-            lastFocusedWindow: true,
-          });
-          const tab = tabs[0];
-          if (!tab?.id) {
-            throw new Error("SnapDraw couldn't find the active tab.");
-          }
-          const classification = classifyTabUrl(tab.url);
-          if (classification.restricted) {
-            throw new Error(
-              "Chrome doesn't allow recording this page. Switch to a normal website tab and try again.",
-            );
-          }
-          streamId = await getTabCaptureStreamId(tab.id);
-        } else {
-          streamId = await requestDesktopStreamId();
-        }
-
-        const response = await startRecording(streamId, source);
-        if (!response.ok) {
-          throw new Error(
-            response.error.hint
-              ? `${response.error.message} ${response.error.hint}`
-              : response.error.message,
-          );
-        }
-
-        setRecording(response.status);
-        // Recording continues in the background once the popup closes.
-        window.close();
-      } catch (startError) {
-        setRecordError(
-          startError instanceof Error
-            ? startError.message
-            : "Couldn't start recording.",
+      const classification = classifyTabUrl(tab.url);
+      if (classification.restricted) {
+        throw new Error(
+          "Chrome doesn't allow recording this page. Switch to a normal website tab and try again.",
         );
-      } finally {
-        setStartingSource(null);
       }
-    },
-    [isPreview, startingSource],
-  );
+
+      const streamId = await getTabCaptureStreamId(tab.id);
+      const response = await startRecording(streamId, "tab");
+      if (!response.ok) {
+        throw new Error(
+          response.error.hint
+            ? `${response.error.message} ${response.error.hint}`
+            : response.error.message,
+        );
+      }
+
+      setRecording(response.status);
+      // Recording continues in the background once the popup closes.
+      window.close();
+    } catch (startError) {
+      setRecordError(
+        startError instanceof Error
+          ? startError.message
+          : "Couldn't start recording.",
+      );
+    } finally {
+      setStartingSource(null);
+    }
+  }, [isPreview, startingSource]);
+
+  /**
+   * Opens the compact screen-share window for "Whole screen".
+   *
+   * Chrome requires a visible extension page to call `getDisplayMedia()` (the
+   * screen-share system picker answers there), and the recording must outlive
+   * the popup. The window is not a tab and closes itself after saving.
+   */
+  const openScreenRecorder = useCallback(async (): Promise<void> => {
+    if (isPreview || startingSource !== null) {
+      return;
+    }
+
+    setStartingSource("desktop");
+    setRecordError(null);
+
+    try {
+      if (!isExtensionContext()) {
+        throw new Error("Screen recording needs the SnapDraw extension.");
+      }
+
+      await chrome.windows.create({
+        url: screenRecorderUrl(),
+        type: "popup",
+        width: 460,
+        height: 400,
+        focused: true,
+      });
+      window.close();
+    } catch (startError) {
+      setRecordError(
+        startError instanceof Error
+          ? startError.message
+          : "Couldn't open the screen recorder.",
+      );
+    } finally {
+      setStartingSource(null);
+    }
+  }, [isPreview, startingSource]);
 
   const finishRecording = useCallback(
     async (discard: boolean): Promise<void> => {
@@ -295,6 +341,7 @@ export function Popup() {
     isPreview ||
     startingSource !== null ||
     stopping ||
+    screenRecordingActive ||
     status === "capturing" ||
     status === "success";
 
@@ -319,6 +366,18 @@ export function Popup() {
                 <span>
                   <strong>Preview mode.</strong> Chrome extension APIs are unavailable here.
                   Load SnapDraw from chrome://extensions to capture.
+                </span>
+              </div>
+            ) : null}
+
+            {screenRecordingActive && !recording.recording ? (
+              <div className="sd-popup__notice" role="note">
+                <span className="sd-popup__notice-icon">
+                  <InfoIcon size={15} />
+                </span>
+                <span>
+                  <strong>Screen recording in progress.</strong> Stop it from the SnapDraw
+                  recorder window.
                 </span>
               </div>
             ) : null}
@@ -410,7 +469,7 @@ export function Popup() {
                     disabled={recordDisabled}
                     aria-label="Record this tab"
                     title="Record this tab, then annotate the video in Excalidraw"
-                    onClick={() => void beginRecording("tab")}
+                    onClick={() => void beginTabRecording()}
                   >
                     This tab
                   </Button>
@@ -422,8 +481,8 @@ export function Popup() {
                     loading={startingSource === "desktop"}
                     disabled={recordDisabled}
                     aria-label="Record whole screen"
-                    title="Record your whole screen — every tab and app"
-                    onClick={() => void beginRecording("desktop")}
+                    title="Open a compact window to record your whole screen — every tab and app"
+                    onClick={() => void openScreenRecorder()}
                   >
                     Whole screen
                   </Button>
