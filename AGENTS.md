@@ -169,7 +169,7 @@ recording services and the canvas readback shim.
 --chrome="C:\path\to\chrome.exe"`). Requires Chrome 137+; installs the unpacked extension via the CDP
 `Extensions` domain (branded Chrome 137+ ignores `--load-extension`). Drives real input, clipboard and
 downloads, serves local fixtures on `127.0.0.1`, asserts zero external requests, regenerates
-`docs/screenshots/*.png`. Size: **114 checks** at the time of writing (the generated
+`docs/screenshots/*.png`. Size: **115 checks** at the time of writing (the generated
 `test-results/e2e-report.json` is authoritative — trust it and the console summary over prose counts).
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`,
 `test-results/annotated-video.webm`, `docs/screenshots/*.png`. The harness adds `host_permissions` +
