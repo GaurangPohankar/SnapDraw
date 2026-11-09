@@ -85,6 +85,8 @@ describe("public/manifest.json", () => {
     expect(manifest.permissions).toEqual([
       "activeTab",
       "clipboardWrite",
+      "desktopCapture",
+      "offscreen",
       "tabCapture",
     ]);
     expect([...manifest.permissions].sort()).toEqual(manifest.permissions);

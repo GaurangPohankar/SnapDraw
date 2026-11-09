@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "../components/Button";
 import { ToastViewport, useToast } from "../components/Toast";
-import { getTabCaptureStreamId } from "../services/recording.service";
+import { getTabCaptureStreamId, requestDesktopStreamId } from "../services/recording.service";
 import { classifyTabUrl } from "../services/screenshot.service";
+import { formatDuration } from "../services/video.service";
+import type { RecordingSource, RecordingStatus } from "../types";
 import {
-  buildRecorderUrl,
+  getRecordingStatus,
   isExtensionContext,
+  startRecording,
+  stopRecording,
 } from "../utils/messaging";
 import { ErrorPanel } from "./components/ErrorPanel";
 import { Header } from "./components/Header";
@@ -17,7 +21,9 @@ import {
   ClockIcon,
   ImageIcon,
   InfoIcon,
+  ScreenIcon,
   ShieldIcon,
+  TabIcon,
   VideoIcon,
 } from "./components/icons";
 import { openScreenshotInEditor } from "./openScreenshot";
@@ -30,6 +36,12 @@ import { useRecentScreenshots } from "./useRecentScreenshots";
 const FALLBACK_VERSION = "1.0.0";
 
 type PopupView = "capture" | "history";
+
+const IDLE_RECORDING: RecordingStatus = {
+  recording: false,
+  source: null,
+  startedAt: null,
+};
 
 function readExtensionVersion(): string {
   try {
@@ -63,21 +75,53 @@ function isInteractiveTarget(target: EventTarget | null): boolean {
 }
 
 /**
- * SnapDraw popup: one obvious capture action, a live shortcut hint, a local
- * screenshot history and a friendly, inline failure state.
+ * SnapDraw popup: one-click screenshot capture, background tab/screen video
+ * recording, a compact history preview and the full history view.
  */
 export function Popup() {
   const { status, phase, error, isPreview, capture } = useCapture();
   const { toasts, showToast, dismissToast } = useToast();
   const [view, setView] = useState<PopupView>("capture");
-  const [recordingStarting, setRecordingStarting] = useState(false);
-  const [recordingError, setRecordingError] = useState<string | null>(null);
+  const [recordError, setRecordError] = useState<string | null>(null);
+  const [startingSource, setStartingSource] = useState<RecordingSource | null>(null);
+  const [recording, setRecording] = useState<RecordingStatus>(IDLE_RECORDING);
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const [stopping, setStopping] = useState(false);
   const {
     recent,
     total: historyTotal,
     refresh: refreshHistory,
   } = useRecentScreenshots();
   const version = readExtensionVersion();
+
+  // Restore the recording state when the popup is reopened during a recording.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      const response = await getRecordingStatus();
+      if (!cancelled && response.ok) {
+        setRecording(response.status);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!recording.recording || recording.startedAt === null) {
+      setElapsedMs(0);
+      return undefined;
+    }
+
+    const startedAt = recording.startedAt;
+    setElapsedMs(Date.now() - startedAt);
+    const timer = window.setInterval(() => {
+      setElapsedMs(Date.now() - startedAt);
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, [recording]);
 
   const handleCopyResult = useCallback(
     (copied: boolean) => {
@@ -111,6 +155,7 @@ export function Popup() {
       if (
         view !== "capture" ||
         isPreview ||
+        recording.recording ||
         status === "capturing" ||
         status === "success"
       ) {
@@ -127,59 +172,100 @@ export function Popup() {
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [capture, isPreview, status, view]);
-
-  const actionLabel =
-    status === "capturing"
-      ? phase === "capturing"
-        ? "Capturing…"
-        : "Opening editor…"
-      : "Capture Screenshot";
+  }, [capture, isPreview, recording.recording, status, view]);
 
   /**
-   * Starts a tab recording: grab the capture stream id while the popup still has
-   * the user gesture, then hand it to the recorder tab.
+   * Starts a background recording. The popup only hands over a capture stream
+   * id; the service worker + offscreen document keep recording after the popup
+   * closes, so the same tab does not need to stay open.
    */
-  const startRecording = useCallback(async (): Promise<void> => {
-    if (isPreview || recordingStarting) {
-      return;
-    }
-
-    setRecordingStarting(true);
-    setRecordingError(null);
-
-    try {
-      if (!isExtensionContext()) {
-        throw new Error("Video recording needs the SnapDraw extension.");
+  const beginRecording = useCallback(
+    async (source: RecordingSource): Promise<void> => {
+      if (isPreview || startingSource !== null) {
+        return;
       }
 
-      const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-      const tab = tabs[0];
-      if (!tab?.id) {
-        throw new Error("SnapDraw couldn't find the active tab.");
-      }
+      setStartingSource(source);
+      setRecordError(null);
 
-      const classification = classifyTabUrl(tab.url);
-      if (classification.restricted) {
-        throw new Error(
-          "Chrome doesn't allow recording this page. Switch to a normal website tab and try again.",
+      try {
+        if (!isExtensionContext()) {
+          throw new Error("Video recording needs the SnapDraw extension.");
+        }
+
+        let streamId: string;
+
+        if (source === "tab") {
+          const tabs = await chrome.tabs.query({
+            active: true,
+            lastFocusedWindow: true,
+          });
+          const tab = tabs[0];
+          if (!tab?.id) {
+            throw new Error("SnapDraw couldn't find the active tab.");
+          }
+          const classification = classifyTabUrl(tab.url);
+          if (classification.restricted) {
+            throw new Error(
+              "Chrome doesn't allow recording this page. Switch to a normal website tab and try again.",
+            );
+          }
+          streamId = await getTabCaptureStreamId(tab.id);
+        } else {
+          streamId = await requestDesktopStreamId();
+        }
+
+        const response = await startRecording(streamId, source);
+        if (!response.ok) {
+          throw new Error(
+            response.error.hint
+              ? `${response.error.message} ${response.error.hint}`
+              : response.error.message,
+          );
+        }
+
+        setRecording(response.status);
+        // Recording continues in the background once the popup closes.
+        window.close();
+      } catch (startError) {
+        setRecordError(
+          startError instanceof Error
+            ? startError.message
+            : "Couldn't start recording.",
         );
+      } finally {
+        setStartingSource(null);
+      }
+    },
+    [isPreview, startingSource],
+  );
+
+  const finishRecording = useCallback(
+    async (discard: boolean): Promise<void> => {
+      if (stopping) {
+        return;
       }
 
-      const streamId = await getTabCaptureStreamId(tab.id);
-      await chrome.tabs.create({
-        url: buildRecorderUrl(streamId, tab.id),
-        active: true,
-      });
+      setStopping(true);
+      setRecordError(null);
+
+      const response = await stopRecording(discard);
+      setStopping(false);
+
+      if (!response.ok) {
+        setRecordError(
+          response.error.hint
+            ? `${response.error.message} ${response.error.hint}`
+            : response.error.message,
+        );
+        return;
+      }
+
+      setRecording(IDLE_RECORDING);
       window.close();
-    } catch (error) {
-      setRecordingError(
-        error instanceof Error ? error.message : "Couldn't start recording.",
-      );
-    } finally {
-      setRecordingStarting(false);
-    }
-  }, [isPreview, recordingStarting]);
+    },
+    [stopping],
+  );
 
   const openHistory = (): void => {
     setView("history");
@@ -190,6 +276,27 @@ export function Popup() {
     setView("capture");
     void refreshHistory();
   };
+
+  const actionLabel =
+    status === "capturing"
+      ? phase === "capturing"
+        ? "Capturing…"
+        : "Opening editor…"
+      : "Capture Screenshot";
+
+  const actionSubLabel =
+    status === "capturing"
+      ? phase === "capturing"
+        ? "Capturing the visible area…"
+        : "Opening the editor in a new tab…"
+      : "Visible area of this tab → editor";
+
+  const recordDisabled =
+    isPreview ||
+    startingSource !== null ||
+    stopping ||
+    status === "capturing" ||
+    status === "success";
 
   return (
     <div className="sd-popup">
@@ -216,75 +323,129 @@ export function Popup() {
               </div>
             ) : null}
 
-            {status === "error" && error ? (
-              <ErrorPanel error={error} onRetry={() => void capture()} />
+            {recording.recording ? (
+              <section className="sd-popup__recording" aria-label="Recording in progress">
+                <div className="sd-popup__recording-status">
+                  <span className="sd-popup__recording-dot" aria-hidden="true" />
+                  <span className="sd-popup__recording-label">
+                    {recording.source === "desktop"
+                      ? "Recording your screen"
+                      : "Recording this tab"}
+                  </span>
+                  <span className="sd-popup__recording-timer" aria-live="off">
+                    {formatDuration(elapsedMs)}
+                  </span>
+                </div>
+                <p className="sd-popup__recording-note">
+                  Recording continues in the background — you can use other tabs. Stop
+                  whenever you are done to open the editor.
+                </p>
+                <Button
+                  variant="primary"
+                  size="md"
+                  fullWidth
+                  loading={stopping}
+                  aria-label="Stop recording"
+                  onClick={() => void finishRecording(false)}
+                >
+                  Stop and open editor
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  fullWidth
+                  disabled={stopping}
+                  aria-label="Cancel recording"
+                  onClick={() => void finishRecording(true)}
+                >
+                  Cancel recording
+                </Button>
+              </section>
             ) : (
-              <div className="sd-popup__action">
-                {status === "success" ? (
-                  <div className="sd-popup__success" aria-hidden="true">
-                    <span className="sd-popup__success-icon">
-                      <CheckIcon size={15} />
-                    </span>
-                    <span className="sd-popup__success-label">Editor opened</span>
-                  </div>
+              <>
+                {status === "error" && error ? (
+                  <ErrorPanel error={error} onRetry={() => void capture()} />
                 ) : (
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    fullWidth
-                    className="sd-popup__capture"
-                    leadingIcon={<CameraIcon size={19} />}
-                    loading={status === "capturing"}
-                    disabled={isPreview}
-                    autoFocus={!isPreview && status === "idle"}
-                    aria-describedby={isPreview ? undefined : "sd-popup-status"}
-                    onClick={() => void capture()}
-                  >
-                    {actionLabel}
-                  </Button>
+                  <div className="sd-popup__action">
+                    {status === "success" ? (
+                      <div className="sd-popup__success" aria-hidden="true">
+                        <span className="sd-popup__success-icon">
+                          <CheckIcon size={15} />
+                        </span>
+                        <span className="sd-popup__success-label">Editor opened</span>
+                      </div>
+                    ) : (
+                      <Button
+                        variant="primary"
+                        size="lg"
+                        fullWidth
+                        className="sd-popup__capture"
+                        leadingIcon={<CameraIcon size={19} />}
+                        loading={status === "capturing"}
+                        disabled={isPreview}
+                        autoFocus={!isPreview && status === "idle"}
+                        aria-describedby={isPreview ? undefined : "sd-popup-status"}
+                        onClick={() => void capture()}
+                      >
+                        <span className="sd-popup__action-title">{actionLabel}</span>
+                        <span className="sd-popup__action-sub">{actionSubLabel}</span>
+                      </Button>
+                    )}
+
+                    {status === "capturing" ? (
+                      <div className="sd-popup__progress" aria-hidden="true">
+                        <span className="sd-popup__progress-bar" />
+                      </div>
+                    ) : null}
+                  </div>
                 )}
 
-                {status === "capturing" ? (
-                  <div className="sd-popup__progress" aria-hidden="true">
-                    <span className="sd-popup__progress-bar" />
-                  </div>
+                <div className="sd-popup__record-group" role="group" aria-label="Record video">
+                  <Button
+                    variant="record"
+                    size="md"
+                    className="sd-popup__record-segment sd-popup__record-segment--left"
+                    leadingIcon={<TabIcon size={16} />}
+                    loading={startingSource === "tab"}
+                    disabled={recordDisabled}
+                    aria-label="Record this tab"
+                    title="Record this tab, then annotate the video in Excalidraw"
+                    onClick={() => void beginRecording("tab")}
+                  >
+                    This tab
+                  </Button>
+                  <Button
+                    variant="record"
+                    size="md"
+                    className="sd-popup__record-segment sd-popup__record-segment--right"
+                    leadingIcon={<ScreenIcon size={16} />}
+                    loading={startingSource === "desktop"}
+                    disabled={recordDisabled}
+                    aria-label="Record whole screen"
+                    title="Record your whole screen — every tab and app"
+                    onClick={() => void beginRecording("desktop")}
+                  >
+                    Whole screen
+                  </Button>
+                </div>
+
+                {recordError ? (
+                  <p className="sd-popup__record-error" role="alert">
+                    {recordError}
+                  </p>
                 ) : null}
 
-                {isPreview ? null : (
-                  <p
-                    id="sd-popup-status"
-                    className="sd-popup__status"
-                    role="status"
-                    aria-live="polite"
-                    aria-atomic="true"
-                    data-tone={status}
-                  >
-                    {statusCopy(status, phase)}
-                  </p>
-                )}
-              </div>
+                <p
+                  id="sd-popup-status"
+                  className="sd-sr-only"
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                >
+                  {statusCopy(status, phase)}
+                </p>
+              </>
             )}
-
-            <Button
-              variant="record"
-              size="lg"
-              fullWidth
-              className="sd-popup__record"
-              leadingIcon={<VideoIcon size={19} />}
-              loading={recordingStarting}
-              disabled={isPreview || status === "capturing" || status === "success"}
-              aria-label="Record video"
-              title="Record this tab, then annotate the video in Excalidraw"
-              onClick={() => void startRecording()}
-            >
-              {recordingStarting ? "Opening recorder…" : "Record video"}
-            </Button>
-
-            {recordingError ? (
-              <p className="sd-popup__record-error" role="alert">
-                {recordingError}
-              </p>
-            ) : null}
 
             <ShortcutRow onCopyResult={handleCopyResult} />
 
@@ -330,9 +491,20 @@ export function Popup() {
                       ) : (
                         <ImageIcon size={16} />
                       )}
-                      {item.entry.kind === "video" ? (
-                        <span className="sd-recent__play" aria-hidden="true" />
-                      ) : null}
+                      <span
+                        className={
+                          item.entry.kind === "video"
+                            ? "sd-recent__type sd-recent__type--video"
+                            : "sd-recent__type"
+                        }
+                        aria-hidden="true"
+                      >
+                        {item.entry.kind === "video" ? (
+                          <VideoIcon size={11} />
+                        ) : (
+                          <ImageIcon size={11} />
+                        )}
+                      </span>
                     </button>
                   ))}
                 </div>
