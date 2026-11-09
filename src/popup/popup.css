@@ -86,26 +86,6 @@ body {
   gap: 7px;
 }
 
-.sd-popup__capture {
-  font-weight: 650;
-  letter-spacing: -0.005em;
-}
-
-.sd-popup__capture:focus-visible {
-  outline-offset: 3px;
-}
-
-/* Keep the in-flight capture vivid instead of the default disabled fade. */
-.sd-popup .sd-popup__capture.sd-button--loading {
-  opacity: 0.92;
-  cursor: progress;
-}
-
-/* Disabled for preview mode – unmistakably unavailable. */
-.sd-popup .sd-popup__capture:disabled:not(.sd-button--loading) {
-  opacity: 0.5;
-}
-
 /* --------------------------------------------------------------------------
    Capturing progress
    -------------------------------------------------------------------------- */
@@ -113,7 +93,7 @@ body {
 .sd-popup__progress {
   position: relative;
   height: 3px;
-  margin: -2px 1px 0;
+  margin: 2px 1px 0;
   overflow: hidden;
   border-radius: var(--sd-radius-full);
   background: var(--sd-brand-soft);
@@ -842,69 +822,120 @@ body {
   position: relative;
 }
 
-/* Capture action: label + explanation inside the button. */
-.sd-popup__action-title {
-  display: block;
-  font-size: 15px;
-  font-weight: 650;
-  line-height: 1.25;
+/* Action grid: four large, colour-coded cards (2×2). */
+.sd-popup__cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: 1fr;
+  gap: 10px;
 }
 
-.sd-popup__action-sub {
-  display: block;
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1.3;
-  opacity: 0.92;
-}
-
-.sd-popup__capture {
-  --sd-button-height: 58px;
-  padding: 0 16px;
-}
-
-.sd-popup__capture .sd-button__label {
+.sd-popup__cards .sd-popup__card {
+  position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 1px;
-  text-align: left;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 104px;
+  padding: 15px 10px 13px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-lg);
+  background: var(--sd-surface);
+  color: var(--sd-text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition:
+    transform var(--sd-duration-fast) var(--sd-ease),
+    border-color var(--sd-duration-fast) var(--sd-ease),
+    background-color var(--sd-duration-fast) var(--sd-ease),
+    box-shadow var(--sd-duration-fast) var(--sd-ease);
 }
 
-/* Split record control: two segments in one line. */
-.sd-popup__record-group {
-  display: flex;
-  align-items: stretch;
-  overflow: hidden;
-  border-radius: var(--sd-radius-md);
-  box-shadow:
-    0 1px 2px rgba(239, 68, 68, 0.34),
-    0 8px 20px rgba(239, 68, 68, 0.22);
+.sd-popup__cards .sd-popup__card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--sd-card-accent);
+  background: var(--sd-card-surface, var(--sd-surface));
+  box-shadow: 0 8px 20px var(--sd-card-glow);
 }
 
-.sd-popup__record-segment {
-  flex: 1 1 0;
-  border-radius: 0;
-  box-shadow: none;
-  height: 44px;
+.sd-popup__cards .sd-popup__card:focus-visible {
+  outline: 2px solid var(--sd-card-accent);
+  outline-offset: 2px;
 }
 
-.sd-popup__record-segment--left {
-  border-radius: var(--sd-radius-md) 0 0 var(--sd-radius-md);
-}
-
-.sd-popup__record-segment--right {
-  border-radius: 0 var(--sd-radius-md) var(--sd-radius-md) 0;
-  border-left: 1px solid rgba(255, 255, 255, 0.32);
-}
-
-.sd-popup__record-segment:hover:not(:disabled) {
-  filter: saturate(1.08) brightness(1.05);
-}
-
-.sd-popup__record-segment:disabled:not(.sd-button--loading) {
+.sd-popup__cards .sd-popup__card:disabled {
+  cursor: not-allowed;
   opacity: 0.55;
 }
+
+.sd-popup__card--capture {
+  --sd-card-accent: #8b5cf6;
+  --sd-card-soft: rgba(139, 92, 246, 0.16);
+  --sd-card-glow: rgba(139, 92, 246, 0.24);
+}
+
+.sd-popup__card--tab {
+  --sd-card-accent: #f87171;
+  --sd-card-soft: rgba(248, 113, 113, 0.16);
+  --sd-card-glow: rgba(248, 113, 113, 0.22);
+}
+
+.sd-popup__card--screen {
+  --sd-card-accent: #fbbf24;
+  --sd-card-soft: rgba(251, 191, 36, 0.16);
+  --sd-card-glow: rgba(251, 191, 36, 0.22);
+}
+
+.sd-popup__card--blank {
+  --sd-card-accent: #34d399;
+  --sd-card-soft: rgba(52, 211, 153, 0.16);
+  --sd-card-glow: rgba(52, 211, 153, 0.22);
+}
+
+.sd-popup__card-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid color-mix(in srgb, var(--sd-card-accent) 32%, transparent);
+  border-radius: 11px;
+  background: var(--sd-card-soft);
+  color: var(--sd-card-accent);
+}
+
+.sd-popup__card-label {
+  max-width: 100%;
+  color: var(--sd-text);
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+  text-wrap: balance;
+}
+
+.sd-popup__card-spinner {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 12px;
+  height: 12px;
+  border: 2px solid var(--sd-card-soft);
+  border-top-color: var(--sd-card-accent);
+  border-radius: 50%;
+  animation: sd-popup-spin 700ms linear infinite;
+}
+
+@keyframes sd-popup-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Split record control styles were replaced by the action grid above. */
 
 /* Recording panel shown when the popup is reopened mid-recording. */
 .sd-popup__recording {

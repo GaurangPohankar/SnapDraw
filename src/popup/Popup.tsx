@@ -26,7 +26,6 @@ import {
   PencilIcon,
   ScreenIcon,
   ShieldIcon,
-  TabIcon,
   VideoIcon,
 } from "./components/icons";
 import { openScreenshotInEditor } from "./openScreenshot";
@@ -355,14 +354,14 @@ export function Popup() {
       ? phase === "capturing"
         ? "Capturing…"
         : "Opening editor…"
-      : "Capture Screenshot";
+      : "Capture";
 
-  const actionSubLabel =
-    status === "capturing"
-      ? phase === "capturing"
-        ? "Capturing the visible area…"
-        : "Opening the editor in a new tab…"
-      : null;
+  const blankDisabled =
+    startingSource !== null ||
+    stopping ||
+    screenRecordingActive ||
+    status === "capturing" ||
+    status === "success";
 
   const recordDisabled =
     isPreview ||
@@ -461,80 +460,101 @@ export function Popup() {
                         <span className="sd-popup__success-label">Editor opened</span>
                       </div>
                     ) : (
-                      <Button
-                        variant="primary"
-                        size="lg"
-                        fullWidth
-                        className="sd-popup__capture"
-                        leadingIcon={<CameraIcon size={19} />}
-                        loading={status === "capturing"}
-                        disabled={isPreview}
-                        autoFocus={!isPreview && status === "idle"}
-                        aria-describedby={isPreview ? undefined : "sd-popup-status"}
-                        onClick={() => void capture()}
-                      >
-                        <span className="sd-popup__action-title">{actionLabel}</span>
-                        {actionSubLabel ? (
-                          <span className="sd-popup__action-sub">{actionSubLabel}</span>
-                        ) : null}
-                      </Button>
-                    )}
+                      <>
+                        <div
+                          className="sd-popup__cards"
+                          role="group"
+                          aria-label="SnapDraw actions"
+                        >
+                          <button
+                            type="button"
+                            className="sd-popup__card sd-popup__card--capture sd-popup__capture"
+                            disabled={isPreview || status === "capturing"}
+                            aria-busy={status === "capturing"}
+                            aria-label="Capture Screenshot"
+                            aria-describedby={isPreview ? undefined : "sd-popup-status"}
+                            onClick={() => void capture()}
+                          >
+                            <span className="sd-popup__card-icon" aria-hidden="true">
+                              <CameraIcon size={21} />
+                            </span>
+                            <span className="sd-popup__card-label">{actionLabel}</span>
+                            {status === "capturing" ? (
+                              <span
+                                className="sd-popup__card-spinner"
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                          </button>
 
-                    {status === "capturing" ? (
-                      <div className="sd-popup__progress" aria-hidden="true">
-                        <span className="sd-popup__progress-bar" />
-                      </div>
-                    ) : null}
+                          <button
+                            type="button"
+                            className="sd-popup__card sd-popup__card--tab"
+                            disabled={recordDisabled}
+                            aria-busy={startingSource === "tab"}
+                            aria-label="Record this tab"
+                            title="Record this tab, then annotate the video in Excalidraw"
+                            onClick={() => void beginTabRecording()}
+                          >
+                            <span className="sd-popup__card-icon" aria-hidden="true">
+                              <VideoIcon size={20} />
+                            </span>
+                            <span className="sd-popup__card-label">Tab recording</span>
+                            {startingSource === "tab" ? (
+                              <span
+                                className="sd-popup__card-spinner"
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="sd-popup__card sd-popup__card--screen"
+                            disabled={recordDisabled}
+                            aria-busy={startingSource === "desktop"}
+                            aria-label="Record whole screen"
+                            title="Open Chrome's picker and record your whole screen — every tab and app"
+                            onClick={() => void openScreenRecorder()}
+                          >
+                            <span className="sd-popup__card-icon" aria-hidden="true">
+                              <ScreenIcon size={20} />
+                            </span>
+                            <span className="sd-popup__card-label">
+                              Whole screen recording
+                            </span>
+                            {startingSource === "desktop" ? (
+                              <span
+                                className="sd-popup__card-spinner"
+                                aria-hidden="true"
+                              />
+                            ) : null}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="sd-popup__card sd-popup__card--blank"
+                            disabled={blankDisabled}
+                            aria-label="Open blank canvas"
+                            title="Open a fresh Excalidraw canvas with no screenshot"
+                            onClick={openBlankCanvas}
+                          >
+                            <span className="sd-popup__card-icon" aria-hidden="true">
+                              <PencilIcon size={20} />
+                            </span>
+                            <span className="sd-popup__card-label">Blank canvas</span>
+                          </button>
+                        </div>
+
+                        {status === "capturing" ? (
+                          <div className="sd-popup__progress" aria-hidden="true">
+                            <span className="sd-popup__progress-bar" />
+                          </div>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 )}
-
-                <div className="sd-popup__record-group" role="group" aria-label="Record video">
-                  <Button
-                    variant="record"
-                    size="md"
-                    className="sd-popup__record-segment sd-popup__record-segment--left"
-                    leadingIcon={<TabIcon size={16} />}
-                    loading={startingSource === "tab"}
-                    disabled={recordDisabled}
-                    aria-label="Record this tab"
-                    title="Record this tab, then annotate the video in Excalidraw"
-                    onClick={() => void beginTabRecording()}
-                  >
-                    This tab
-                  </Button>
-                  <Button
-                    variant="record"
-                    size="md"
-                    className="sd-popup__record-segment sd-popup__record-segment--right"
-                    leadingIcon={<ScreenIcon size={16} />}
-                    loading={startingSource === "desktop"}
-                    disabled={recordDisabled}
-                    aria-label="Record whole screen"
-                    title="Open Chrome's picker and record your whole screen — every tab and app"
-                    onClick={() => void openScreenRecorder()}
-                  >
-                    Whole screen
-                  </Button>
-                </div>
-
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  fullWidth
-                  leadingIcon={<PencilIcon size={16} />}
-                  aria-label="Open blank canvas"
-                  title="Open a fresh Excalidraw canvas with no screenshot"
-                  disabled={
-                    startingSource !== null ||
-                    stopping ||
-                    screenRecordingActive ||
-                    status === "capturing" ||
-                    status === "success"
-                  }
-                  onClick={openBlankCanvas}
-                >
-                  Blank canvas
-                </Button>
 
                 {recordError ? (
                   <p className="sd-popup__record-error" role="alert">

@@ -51,7 +51,7 @@ scene, theme, asset path and main menu rather than forking it.
 | `src/services/recording.service.ts` | `tabCapture` stream-id handover, recording names, save recording as a history row. |
 | `src/services/video.service.ts` | WebM mime preference, video record detection, duration/filename formatting, video thumbnails. |
 | `src/services/video-export.service.ts` | Frame compositing, PNG still, real-time annotated WebM export (canvas stream + audio graph). |
-| `src/popup/Popup.tsx`, `useCapture.ts`, `useRecentScreenshots.ts`, `openScreenshot.ts`, `shortcut.ts` | Capture action, **Blank canvas** action, split record controls, live timer, recent/history UI, capture state machine, editor routing. |
+| `src/popup/Popup.tsx`, `useCapture.ts`, `useRecentScreenshots.ts`, `openScreenshot.ts`, `shortcut.ts` | Four-card action grid (Capture / Tab recording / Whole screen recording / Blank canvas), live timer, recent/history UI, capture state machine, editor routing. |
 | `src/editor/Editor.tsx` | URL parsing (including `?blank=1`), load/error screens, custom `MainMenu` (with **Canvas preferences**), clear annotations, scene mirror, `?` help suppression. |
 | `src/editor/EditorCanvas.tsx` | Initial scene (one locked image + binary file, or empty for a blank canvas), background preference, `UIOptions`, one-time fit to content. |
 | `src/editor/EditorHeader.tsx` | Undo/redo, reset view, lock toggle (captures only), Copy Image, Download; blank-canvas metadata. |
