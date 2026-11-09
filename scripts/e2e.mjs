@@ -2616,6 +2616,16 @@ async function main() {
         `Boolean(document.querySelector(".excalidraw.theme--dark"))`,
       );
       check("dark theme is applied to the canvas", darkTheme === true);
+
+      // Dark mode must not colour-shift the capture or the annotations: the
+      // screenshot fixture's yellow band and magenta body have to survive the
+      // editor's dark theme exactly as they do in the exported PNG.
+      const darkColors = analyzeColors(decodePng(Buffer.from(dark.data, "base64")));
+      check(
+        "dark editor keeps the capture's true colours",
+        darkColors.yellow > 500 && darkColors.magenta > 500,
+        `yellow=${darkColors.yellow} magenta=${darkColors.magenta}`,
+      );
       check("editor screenshots saved", existsSync(path.join(screenshotsDir, "editor-dark.png")));
 
       await setColorScheme(browser, editorOne.sessionId, "light");

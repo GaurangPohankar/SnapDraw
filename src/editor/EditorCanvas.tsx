@@ -11,6 +11,7 @@ import type {
 import type { ExcalidrawElementSkeleton } from "@excalidraw/excalidraw/data/transform";
 import type { FileId } from "@excalidraw/excalidraw/element/types";
 import type { PreparedScreenshot } from "../services/image.service";
+import { wrapImageDataUrlInSvgDataUrl } from "../utils/image-conversion";
 import type { EditorTheme } from "./useColorScheme";
 
 export interface EditorCanvasProps {
@@ -57,20 +58,32 @@ function createFileId(): string {
  * Builds the initial Excalidraw scene: a single locked image element at the
  * screenshot's natural pixel size (so exports keep full resolution) plus the
  * matching binary file entry.
+ *
+ * The capture is wrapped in an SVG data URL on purpose. Excalidraw's dark theme
+ * counter-inverts *raster* image elements so they stay readable on its filtered
+ * canvas, but that transform is only approximate and visibly shifts screenshot
+ * colours. SVG images are exempt, so the editor shows the capture with its true
+ * pixels and the exported PNG matches the screen. See
+ * `wrapImageDataUrlInSvgDataUrl` for the details.
  */
 function buildInitialData(prepared: PreparedScreenshot): ExcalidrawInitialDataState {
   // `FileId` is a branded string in the published types; the id we generate is
   // a plain uuid at runtime, so this is the single boundary cast we need.
   const fileId = createFileId() as FileId;
   const now = Date.now();
+  const displayDataUrl = wrapImageDataUrlInSvgDataUrl(
+    prepared.dataUrl,
+    prepared.width,
+    prepared.height,
+  );
 
   const files: BinaryFiles = {
     [fileId]: {
       id: fileId,
-      mimeType: "image/png",
-      // The data URL is typed as a branded `DataURL`; the value is exactly the
-      // `data:image/png;base64,...` string produced by image.service.
-      dataURL: prepared.dataUrl as DataURL,
+      mimeType: "image/svg+xml",
+      // The data URL is typed as a branded `DataURL`; the value is a valid
+      // `data:image/svg+xml;base64,...` string built from the prepared PNG.
+      dataURL: displayDataUrl as DataURL,
       created: now,
       lastRetrieved: now,
     },
@@ -97,7 +110,10 @@ function buildInitialData(prepared: PreparedScreenshot): ExcalidrawInitialDataSt
     elements: convertToExcalidrawElements(skeleton),
     appState: {
       name: prepared.record.name,
-      viewBackgroundColor: "#ffffff",
+      // Transparent canvas: the screenshot (rendered unfiltered, see above) is
+      // the background, and the surrounding workspace takes its colour from
+      // SnapDraw/Excalidraw's page background. Exported PNGs still use white.
+      viewBackgroundColor: "transparent",
     },
     files,
   };

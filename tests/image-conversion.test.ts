@@ -7,6 +7,7 @@ import {
   fitWithin,
   formatBytes,
   getImageDimensions,
+  wrapImageDataUrlInSvgDataUrl,
 } from "../src/utils/image-conversion";
 
 function bytesOf(buffer: ArrayBuffer): number[] {
@@ -119,6 +120,24 @@ describe("fitWithin", () => {
     expect(
       fitWithin({ width: -10, height: -20 }, { width: 500, height: 500 }),
     ).toEqual({ width: 0, height: 0 });
+  });
+});
+
+describe("wrapImageDataUrlInSvgDataUrl", () => {
+  it("wraps the capture as a same-size SVG data URL", () => {
+    const wrapped = wrapImageDataUrlInSvgDataUrl(
+      "data:image/png;base64,AAAB",
+      1200,
+      760,
+    );
+
+    expect(wrapped.startsWith("data:image/svg+xml;base64,")).toBe(true);
+
+    const svg = atob(wrapped.slice("data:image/svg+xml;base64,".length));
+    expect(svg).toContain('width="1200" height="760"');
+    expect(svg).toContain('viewBox="0 0 1200 760"');
+    expect(svg).toContain('href="data:image/png;base64,AAAB"');
+    expect(svg).toContain('preserveAspectRatio="none"');
   });
 });
 

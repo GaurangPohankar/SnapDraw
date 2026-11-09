@@ -46,6 +46,22 @@ body {
   height: 100%;
 }
 
+/*
+ * Excalidraw's dark theme inverts the scene with a CSS filter
+ * (`--theme-filter`). SnapDraw intentionally renders the scene in true colours
+ * instead: the screenshot is wrapped in an SVG image (Excalidraw skips the
+ * raster counter-filter for SVG), and annotations must look the same as in the
+ * exported PNG. The surrounding UI still uses the dark theme. The eyedropper
+ * preview is unfiltered to match the canvas it samples.
+ */
+.sd-editor__workspace .excalidraw.theme--dark canvas {
+  filter: none !important;
+}
+
+.sd-editor__workspace .excalidraw .excalidraw-eye-dropper-preview {
+  filter: none;
+}
+
 /* --------------------------------------------------------------------------
    Header
    -------------------------------------------------------------------------- */

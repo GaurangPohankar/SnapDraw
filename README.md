@@ -104,7 +104,9 @@ stay readable at a glance.*
   a **View all** link; each thumbnail carries an image or video type icon so you can tell them apart at
   a glance. Old captures saved without a thumbnail are healed automatically.
   Up to 20 captures/recordings are kept for 30 days.
-- **Light & dark** – follows the OS colour scheme; the exported PNG is always light/white.
+- **Light & dark** – follows the OS colour scheme. The canvas always shows the capture's true colours
+  (dark mode does not colour-shift screenshots or annotations), and the exported PNG is always
+  light/white so it matches what annotating in light mode would produce.
 - **Friendly failures** – restricted pages (`chrome://`, Web Store, other extensions, DevTools) get
   an explanation and a retry path instead of a cryptic Chrome error.
 - **Keyboard shortcut** – `Ctrl+Shift+S` (`⌘+Shift+S` on macOS), configurable in Chrome.
@@ -582,6 +584,22 @@ silently, in which case the recording has no audio track.
 **Copy Image says the clipboard is unavailable.**
 Clipboard writes need a focused window and a user gesture, and some managed Chrome profiles block
 them. Use **Download** instead. Reloading the extension after an update also resets clipboard grants.
+
+**Chrome logs a `Canvas2D … willReadFrequently` advisory while picking a colour.**
+That advisory comes from Excalidraw's colour-picker eyedropper (the eyedropper button or
+`Alt` while a colour picker is open): it reads one pixel from the main canvas on every pointer
+move, and Excalidraw creates that canvas without `willReadFrequently`. It was never a SnapDraw
+error and never affected screenshots or recordings. SnapDraw now routes those tiny reads through a
+`willReadFrequently` scratch canvas, which keeps the main canvas GPU-accelerated and stops the
+advisory. Rebuild and reload the extension if you still see it on an older build.
+
+**The editor looks different from the downloaded PNG in dark mode.**
+Earlier builds let Excalidraw's dark theme counter-invert the screenshot, which visibly shifted colours
+(yellow became tan, magenta turned mauve) while the export kept the original pixels. SnapDraw now wraps
+the capture as an SVG image — Excalidraw exempts SVG images from that counter-invert — and renders the
+scene without the dark canvas filter. The editor therefore shows the capture's true colours and the
+exported PNG matches it; only SnapDraw's chrome (and Excalidraw's UI) follow the dark theme. The PNG
+always uses a white background and the original annotation colours.
 
 **Screenshots of very large displays fail.**
 Captures above 8192 px per side are rejected with a friendly error (Chrome's canvas limits). Capture a

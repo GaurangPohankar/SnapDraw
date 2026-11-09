@@ -81,6 +81,40 @@ export interface ImageDimensions {
 }
 
 /**
+ * Escapes a value for use inside a double-quoted XML attribute.
+ */
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;");
+}
+
+/**
+ * Wraps an image data URL in a same-size SVG data URL.
+ *
+ * Excalidraw counter-inverts raster images when the editor uses its dark theme
+ * (`invert(100%) hue-rotate(180deg) saturate(1.25)` on top of the dark canvas
+ * filter). That counter-filter is not colour neutral: an embedded screenshot
+ * noticeably shifts (yellow becomes tan, magenta turns mauve), so what the user
+ * sees is not what `exportToBlob()` writes. Excalidraw deliberately exempts SVG
+ * images from the counter-filter, so presenting the capture inside an SVG keeps
+ * its pixels untouched and makes editor and export agree.
+ */
+export function wrapImageDataUrlInSvgDataUrl(
+  dataUrl: string,
+  width: number,
+  height: number,
+): string {
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" ` +
+    `viewBox="0 0 ${width} ${height}"><image href="${escapeXmlAttribute(dataUrl)}" ` +
+    `width="${width}" height="${height}" preserveAspectRatio="none"/></svg>`;
+
+  return `data:image/svg+xml;base64,${btoa(svg)}`;
+}
+
+/**
  * Reads the natural pixel size of an image blob.
  * Uses `createImageBitmap` which is available in both page and worker scopes.
  */
