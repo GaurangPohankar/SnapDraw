@@ -169,7 +169,7 @@ recording services and the canvas readback shim.
 --chrome="C:\path\to\chrome.exe"`). Requires Chrome 137+; installs the unpacked extension via the CDP
 `Extensions` domain (branded Chrome 137+ ignores `--load-extension`). Drives real input, clipboard and
 downloads, serves local fixtures on `127.0.0.1`, asserts zero external requests, regenerates
-`docs/screenshots/*.png`. Size: **115 checks** at the time of writing (the generated
+`docs/screenshots/*.png`. Size: **116 checks** at the time of writing (the generated
 `test-results/e2e-report.json` is authoritative — trust it and the console summary over prose counts).
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`,
 `test-results/annotated-video.webm`, `docs/screenshots/*.png`. The harness adds `host_permissions` +
@@ -264,6 +264,11 @@ git push origin main
   counter-inverts raster image elements in dark theme (not colour-neutral); SVG is exempt.
 - The dark canvas CSS filter is intentionally disabled in `src/editor/editor.css` and
   `src/video/video.css` so editor and export agree.
+- The same files disable Excalidraw's `--theme-filter` on the colour-picker swatches
+  (`.color-picker__button`, `.color-picker-swatch`, `.color-picker-label-swatch`, the active/hover
+  outlines and the eyedropper preview). Excalidraw normally inverts swatches together with its
+  inverted canvas; on SnapDraw's unfiltered canvas a filtered swatch would show the wrong colour,
+  swapping black and white. Don't re-enable these filters.
 - Export always uses a white background with `exportWithDarkMode: false`
   (`src/services/export.service.ts`); `viewBackgroundColor` stays transparent in the scene.
 - **Don't** revert to a raw PNG data URL, re-enable the filter, or change the export background — that

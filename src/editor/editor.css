@@ -51,15 +51,26 @@ body {
  * (`--theme-filter`). SnapDraw intentionally renders the scene in true colours
  * instead: the screenshot is wrapped in an SVG image (Excalidraw skips the
  * raster counter-filter for SVG), and annotations must look the same as in the
- * exported PNG. The surrounding UI still uses the dark theme. The eyedropper
- * preview is unfiltered to match the canvas it samples.
+ * exported PNG. The surrounding UI still uses the dark theme.
+ *
+ * Excalidraw also filters its colour swatches with the same theme filter so
+ * they match its inverted canvas. Since SnapDraw's canvas is unfiltered, those
+ * swatches must be unfiltered too — otherwise white looks black, black looks
+ * white, and picking a colour produces a different pixel on the shot.
  */
 .sd-editor__workspace .excalidraw.theme--dark canvas {
   filter: none !important;
 }
 
-.sd-editor__workspace .excalidraw .excalidraw-eye-dropper-preview {
-  filter: none;
+.sd-editor__workspace .excalidraw.theme--dark .color-picker__button,
+.sd-editor__workspace .excalidraw.theme--dark .color-picker__button:hover::after,
+.sd-editor__workspace .excalidraw.theme--dark
+  .color-picker__button.active
+  .color-picker__button-outline,
+.sd-editor__workspace .excalidraw.theme--dark .color-picker-swatch,
+.sd-editor__workspace .excalidraw.theme--dark .color-picker-label-swatch,
+.sd-editor__workspace .excalidraw.theme--dark .excalidraw-eye-dropper-preview {
+  filter: none !important;
 }
 
 /* --------------------------------------------------------------------------

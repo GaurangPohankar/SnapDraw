@@ -104,9 +104,9 @@ stay readable at a glance.*
   a **View all** link; each thumbnail carries an image or video type icon so you can tell them apart at
   a glance. Old captures saved without a thumbnail are healed automatically.
   Up to 20 captures/recordings are kept for 30 days.
-- **Light & dark** – follows the OS colour scheme. The canvas always shows the capture's true colours
-  (dark mode does not colour-shift screenshots or annotations), and the exported PNG is always
-  light/white so it matches what annotating in light mode would produce.
+- **Light & dark** – follows the OS colour scheme. The canvas and every colour swatch always show the
+  capture's/annotation's true colours, and the exported PNG is always light/white so it matches what
+  annotating in light mode would produce.
 - **Friendly failures** – restricted pages (`chrome://`, Web Store, other extensions, DevTools) get
   an explanation and a retry path instead of a cryptic Chrome error.
 - **Keyboard shortcut** – `Ctrl+Shift+S` (`⌘+Shift+S` on macOS), configurable in Chrome.
@@ -468,7 +468,7 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (115 checks, all driven through real input events and real downloads):
+It verifies (116 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, record-video action, shortcut hint, local-only copy, version,
@@ -512,8 +512,9 @@ It verifies (115 checks, all driven through real input events and real downloads
 - extension pages produce the friendly restricted-page error with retry; missing/expired sessions and
   `?error=` messages show recoverable error screens;
 - light + dark editor screenshots (and the video editor screenshot) are written to `docs/screenshots/`;
-  the dark-mode check also asserts that the capture's fixture colours (yellow band, magenta body)
-  survive in the editor rather than being shifted by Excalidraw's dark filter.
+  the dark-mode checks also assert that the capture's fixture colours (yellow band, magenta body)
+  survive in the editor and that the stroke palette exposes true black/white swatches with no dark
+  theme filter applied to them.
 
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`, `docs/screenshots/*.png`.
 
@@ -604,9 +605,11 @@ advisory. Rebuild and reload the extension if you still see it on an older build
 Earlier builds let Excalidraw's dark theme counter-invert the screenshot, which visibly shifted colours
 (yellow became tan, magenta turned mauve) while the export kept the original pixels. SnapDraw now wraps
 the capture as an SVG image — Excalidraw exempts SVG images from that counter-invert — and renders the
-scene without the dark canvas filter. The editor therefore shows the capture's true colours and the
-exported PNG matches it; only SnapDraw's chrome (and Excalidraw's UI) follow the dark theme. The PNG
-always uses a white background and the original annotation colours.
+scene without the dark canvas filter. It also removes Excalidraw's dark-theme filter from the colour
+swatches, so the palette shows true black/white (and every other colour) instead of the inverted
+versions. The editor therefore shows the capture's true colours and the exported PNG matches it; only
+SnapDraw's chrome (and Excalidraw's UI) follow the dark theme. The PNG always uses a white background
+and the original annotation colours.
 
 **Screenshots of very large displays fail.**
 Captures above 8192 px per side are rejected with a friendly error (Chrome's canvas limits). Capture a
