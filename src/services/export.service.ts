@@ -71,6 +71,15 @@ export async function exportSceneToPngBlob({
 
   assertExportSize(liveElements, padding, scale);
 
+  // Canvas preferences may pick a solid scene background. Transparent keeps the
+  // existing behaviour (white export) because a transparent PNG has no useful
+  // backdrop for the annotation padding.
+  const sceneBackground =
+    typeof appState?.viewBackgroundColor === "string" &&
+    appState.viewBackgroundColor !== "transparent"
+      ? appState.viewBackgroundColor
+      : "#ffffff";
+
   try {
     return await exportToBlob({
       elements: liveElements,
@@ -78,7 +87,7 @@ export async function exportSceneToPngBlob({
         ...(appState ?? {}),
         exportBackground: true,
         exportWithDarkMode: false,
-        viewBackgroundColor: "#ffffff",
+        viewBackgroundColor: sceneBackground,
         exportScale: scale,
       },
       files,

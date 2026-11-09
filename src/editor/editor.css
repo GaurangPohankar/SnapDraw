@@ -47,6 +47,16 @@ body {
 }
 
 /*
+ * A blank canvas is opened on purpose, so Excalidraw's "welcome" illustration
+ * would sit on top of it. SnapDraw's own affordances explain the tools.
+ */
+.sd-editor__workspace .welcome-screen-center,
+.sd-editor__workspace .welcome-screen-decor,
+.sd-editor__workspace .welcome-screen-decor-hint {
+  display: none !important;
+}
+
+/*
  * Excalidraw's dark theme inverts the scene with a CSS filter
  * (`--theme-filter`). SnapDraw intentionally renders the scene in true colours
  * instead: the screenshot is wrapped in an SVG image (Excalidraw skips the
@@ -360,6 +370,149 @@ body {
   margin: 0;
   font-size: 11.5px;
   color: var(--sd-text-muted);
+}
+
+/* --------------------------------------------------------------------------
+   Canvas preferences dialog
+   -------------------------------------------------------------------------- */
+
+.sd-preferences__dialog {
+  width: min(440px, 100%);
+  gap: 18px;
+}
+
+.sd-preferences__badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--sd-radius-sm);
+  background: var(--sd-surface-2);
+  color: var(--sd-text-secondary);
+}
+
+.sd-preferences__group {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.sd-preferences__label-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.sd-preferences__label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--sd-text);
+}
+
+.sd-preferences__hint,
+.sd-preferences__note {
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--sd-text-muted);
+}
+
+.sd-preferences__options--theme {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.sd-preferences__theme {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 9px 8px;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-sm);
+  background: var(--sd-surface);
+  color: var(--sd-text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 550;
+  cursor: pointer;
+  transition:
+    background-color var(--sd-duration-fast) var(--sd-ease),
+    border-color var(--sd-duration-fast) var(--sd-ease),
+    color var(--sd-duration-fast) var(--sd-ease);
+}
+
+.sd-preferences__theme:hover {
+  background: var(--sd-surface-2);
+  border-color: var(--sd-border-strong);
+}
+
+.sd-preferences__theme[aria-checked="true"] {
+  border-color: var(--sd-accent, #6c5ce7);
+  background: color-mix(in srgb, var(--sd-accent, #6c5ce7) 13%, transparent);
+  color: var(--sd-text);
+}
+
+.sd-preferences__swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.sd-preferences__swatch {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--sd-border);
+  border-radius: var(--sd-radius-sm);
+  background-color: var(--sd-swatch);
+  cursor: pointer;
+  transition:
+    transform var(--sd-duration-fast) var(--sd-ease),
+    box-shadow var(--sd-duration-fast) var(--sd-ease);
+}
+
+.sd-preferences__swatch:hover {
+  transform: translateY(-1px);
+}
+
+.sd-preferences__swatch[aria-checked="true"] {
+  box-shadow:
+    0 0 0 2px var(--sd-bg-elevated),
+    0 0 0 4px var(--sd-text);
+}
+
+/* Transparent swatch: a neutral checkerboard so it is recognisable. */
+.sd-preferences__swatch--transparent {
+  background-color: #ffffff;
+  background-image:
+    linear-gradient(45deg, #cfd4dc 25%, transparent 25%),
+    linear-gradient(-45deg, #cfd4dc 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #cfd4dc 75%),
+    linear-gradient(-45deg, transparent 75%, #cfd4dc 75%);
+  background-size: 10px 10px;
+  background-position:
+    0 0,
+    0 5px,
+    5px -5px,
+    -5px 0;
+}
+
+@media (prefers-color-scheme: dark) {
+  .sd-preferences__swatch--transparent {
+    background-color: #3b4252;
+    background-image:
+      linear-gradient(45deg, #566074 25%, transparent 25%),
+      linear-gradient(-45deg, #566074 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #566074 75%),
+      linear-gradient(-45deg, transparent 75%, #566074 75%);
+  }
 }
 
 /* --------------------------------------------------------------------------

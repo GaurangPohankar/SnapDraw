@@ -15,7 +15,7 @@ import type {
   UIOptions,
 } from "@excalidraw/excalidraw/types";
 import type { RefObject } from "react";
-import { InfoIcon, TrashIcon } from "../editor/icons";
+import { InfoIcon, SettingsIcon, TrashIcon } from "../editor/icons";
 import type { EditorTheme } from "../editor/useColorScheme";
 
 export interface VideoStageProps {
@@ -32,6 +32,7 @@ export interface VideoStageProps {
   annotationCount: number;
   onClearAnnotations: () => void;
   onShowAbout: () => void;
+  onShowPreferences: () => void;
 }
 
 /**
@@ -120,6 +121,7 @@ export const VideoStage = memo(function VideoStage({
   annotationCount,
   onClearAnnotations,
   onShowAbout,
+  onShowPreferences,
 }: VideoStageProps) {
   const stageRef = useRef<HTMLDivElement | null>(null);
   const [stageSize, setStageSize] = useState<Size>(EMPTY_SIZE);
@@ -236,6 +238,13 @@ export const VideoStage = memo(function VideoStage({
                 onSelect={onClearAnnotations}
               >
                 Clear annotations
+              </MainMenu.Item>
+              <MainMenu.Separator />
+              <MainMenu.Item
+                icon={<SettingsIcon />}
+                onSelect={onShowPreferences}
+              >
+                Canvas preferences
               </MainMenu.Item>
               <MainMenu.Separator />
               <MainMenu.Item icon={<InfoIcon />} onSelect={onShowAbout}>

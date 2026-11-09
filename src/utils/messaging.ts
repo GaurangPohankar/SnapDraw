@@ -25,6 +25,9 @@ export const SESSION_QUERY_PARAM = "session";
 /** Query parameter used to surface an error state in the editor tab. */
 export const ERROR_QUERY_PARAM = "error";
 
+/** Query parameter that opens the editor without a screenshot. */
+export const BLANK_QUERY_PARAM = "blank";
+
 /** Thrown by extension side helpers so the UI can show friendly copy. */
 export class SnapDrawError extends Error {
   readonly code: CaptureErrorCode;
@@ -85,6 +88,25 @@ export function buildEditorErrorUrl(
     url.searchParams.set("message", message);
   }
   return url.toString();
+}
+
+/** Builds the editor tab URL for a blank canvas (no capture session). */
+export function buildBlankEditorUrl(): string {
+  const url = new URL(extensionPageUrl(EDITOR_PAGE_PATH));
+  url.searchParams.set(BLANK_QUERY_PARAM, "1");
+  return url.toString();
+}
+
+/** True when the editor was opened as a blank canvas rather than a capture. */
+export function isBlankEditorRequest(
+  search: string = window.location.search,
+): boolean {
+  try {
+    const value = new URLSearchParams(search).get(BLANK_QUERY_PARAM);
+    return value === "1" || value === "true";
+  } catch {
+    return false;
+  }
 }
 
 /** Builds the URL of the video editor tab for a stored recording. */

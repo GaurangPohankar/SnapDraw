@@ -3,8 +3,9 @@
  *
  * Chrome's screen picker must be answered from a visible extension page, and the
  * page has to stay alive while recording. This window (created by the popup) is
- * that page: it calls `getDisplayMedia()`, records with MediaRecorder, saves the
- * WebM locally and asks the service worker to open the video editor.
+ * that page: it opens Chrome's native picker immediately on load (no extra
+ * confirmation click), records with MediaRecorder, saves the WebM locally and
+ * asks the service worker to open the video editor.
  */
 import "./recorder.css";
 import { formatDuration, pickVideoMimeType } from "../services/video.service";
@@ -15,12 +16,15 @@ const dotEl = document.getElementById("dot") as HTMLElement;
 const statusTextEl = document.getElementById("status-text") as HTMLElement;
 const timerEl = document.getElementById("timer") as HTMLElement;
 const errorEl = document.getElementById("error") as HTMLElement;
-const startButton = document.getElementById("start") as HTMLButtonElement;
+const retryButton = document.getElementById("retry") as HTMLButtonElement;
 const stopButton = document.getElementById("stop") as HTMLButtonElement;
 const cancelButton = document.getElementById("cancel") as HTMLButtonElement;
 
 const VIDEO_BITS_PER_SECOND = 4_000_000;
 const TIMER_INTERVAL_MS = 250;
+
+type StatusMode = "idle" | "recording" | "working";
+type ControlsState = "picking" | "recording" | "finishing" | "error";
 
 let recorder: MediaRecorder | null = null;
 let stream: MediaStream | null = null;
@@ -28,11 +32,14 @@ let chunks: Blob[] = [];
 let startedAt = 0;
 let timerId: number | null = null;
 let finishing = false;
+let requesting = false;
+let windowClosing = false;
 
-function setStatus(text: string, mode: "idle" | "recording" | "working"): void {
+function setStatus(text: string, mode: StatusMode): void {
   statusTextEl.textContent = text;
   statusEl.dataset.mode = mode;
   dotEl.classList.toggle("sd-rec__dot--live", mode === "recording");
+  dotEl.classList.toggle("sd-rec__dot--working", mode === "working");
 }
 
 function showError(message: string | null): void {
@@ -45,13 +52,25 @@ function showError(message: string | null): void {
   errorEl.textContent = message;
 }
 
-function setButtons(recording: boolean, busy = false): void {
-  startButton.hidden = recording || busy;
-  stopButton.hidden = !recording;
-  cancelButton.hidden = !recording;
-  startButton.disabled = busy;
-  stopButton.disabled = busy;
-  cancelButton.disabled = busy;
+/**
+ * Normal flow: no buttons while Chrome's picker is open; Stop/Cancel while
+ * recording; only a failed start offers "Try again" (plus Cancel to close).
+ */
+function setControls(state: ControlsState): void {
+  retryButton.hidden = state !== "error";
+  stopButton.hidden = state !== "recording";
+  cancelButton.hidden = state !== "error" && state !== "recording";
+  retryButton.disabled = false;
+  stopButton.disabled = state !== "recording";
+  cancelButton.disabled = false;
+}
+
+function closeRecorderWindow(): void {
+  if (windowClosing) {
+    return;
+  }
+  windowClosing = true;
+  window.close();
 }
 
 function startTimer(): void {
@@ -130,7 +149,7 @@ async function finishRecording(discard: boolean): Promise<void> {
     return;
   }
   finishing = true;
-  setButtons(false, true);
+  setControls("finishing");
   setStatus(discard ? "Cancelling…" : "Saving recording…", "working");
 
   const activeRecorder = recorder;
@@ -159,7 +178,7 @@ async function finishRecording(discard: boolean): Promise<void> {
 
   if (discard || blob.size === 0) {
     notifyServiceWorker({ target: "snapdraw-sw", type: "recording:cancelled" });
-    window.close();
+    closeRecorderWindow();
     return;
   }
 
@@ -177,10 +196,10 @@ async function finishRecording(discard: boolean): Promise<void> {
       sessionId: saved.id,
       name: saved.name,
     });
-    window.close();
+    closeRecorderWindow();
   } catch (error) {
     finishing = false;
-    setButtons(true);
+    setControls("recording");
     setStatus("Recording", "recording");
     showError(
       `Couldn't save the recording: ${
@@ -190,44 +209,83 @@ async function finishRecording(discard: boolean): Promise<void> {
   }
 }
 
-async function startRecording(): Promise<void> {
-  if (recorder) {
-    return;
-  }
-  showError(null);
-  startButton.disabled = true;
-  setStatus("Choose a screen or window to share…", "working");
+function isPickerCancelled(error: unknown): boolean {
+  return error instanceof DOMException && error.name === "NotAllowedError";
+}
 
-  let displayStream: MediaStream;
+/**
+ * Existing capture path: ask for audio first, then fall back to video-only. A
+ * NotAllowedError means the user dismissed Chrome's picker (or capture is
+ * blocked), which callers treat as a quiet cancel.
+ */
+async function requestDisplayStream(): Promise<MediaStream> {
   try {
-    displayStream = await navigator.mediaDevices.getDisplayMedia({
+    return await navigator.mediaDevices.getDisplayMedia({
       video: { frameRate: 30 },
       audio: true,
     });
   } catch (audioError) {
-    if (audioError instanceof DOMException && audioError.name === "NotAllowedError") {
-      // Picker cancelled/denied.
-      startButton.disabled = false;
-      setStatus("Ready to record", "idle");
+    if (isPickerCancelled(audioError)) {
+      throw audioError;
+    }
+    return await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 30 },
+      audio: false,
+    });
+  }
+}
+
+function showStartFailure(message: string): void {
+  setControls("error");
+  setStatus("Screen sharing didn't start", "idle");
+  showError(message);
+}
+
+/**
+ * Opens Chrome's picker immediately and starts recording once it is answered.
+ * Safe to call again from "Try again" after a failure.
+ */
+async function requestRecording(): Promise<void> {
+  if (requesting || finishing || recorder) {
+    return;
+  }
+  requesting = true;
+  showError(null);
+  setControls("picking");
+  setStatus("Opening Chrome's picker…", "working");
+
+  // Chrome presents the display picker for a focused, visible extension window.
+  // The popup creates this window focused, but focus can be stolen during boot.
+  try {
+    window.focus();
+  } catch {
+    // Best-effort only.
+  }
+
+  let displayStream: MediaStream;
+  try {
+    displayStream = await requestDisplayStream();
+  } catch (error) {
+    requesting = false;
+    if (isPickerCancelled(error)) {
+      // The user cancelled Chrome's picker: close quietly instead of leaving a
+      // dead recorder window behind.
+      closeRecorderWindow();
       return;
     }
-    try {
-      displayStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { frameRate: 30 },
-        audio: false,
-      });
-    } catch (error) {
-      startButton.disabled = false;
-      setStatus("Ready to record", "idle");
-      showError(
-        error instanceof DOMException && error.name === "NotAllowedError"
-          ? "Screen sharing was cancelled."
-          : `Chrome couldn't start screen sharing: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-      );
-      return;
-    }
+    showStartFailure(
+      `Chrome couldn't start screen sharing: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return;
+  }
+
+  requesting = false;
+
+  if (windowClosing) {
+    stopTracks(displayStream);
+    return;
   }
 
   try {
@@ -247,7 +305,7 @@ async function startRecording(): Promise<void> {
     stream = displayStream;
     recorder = mediaRecorder;
     startedAt = Date.now();
-    setButtons(true);
+    setControls("recording");
     setStatus("Recording your screen", "recording");
     startTimer();
     notifyServiceWorker({
@@ -263,9 +321,7 @@ async function startRecording(): Promise<void> {
     });
   } catch (error) {
     stopTracks(displayStream);
-    startButton.disabled = false;
-    setStatus("Ready to record", "idle");
-    showError(
+    showStartFailure(
       `Couldn't start recording: ${
         error instanceof Error ? error.message : String(error)
       }`,
@@ -273,8 +329,8 @@ async function startRecording(): Promise<void> {
   }
 }
 
-startButton.addEventListener("click", () => {
-  void startRecording();
+retryButton.addEventListener("click", () => {
+  void requestRecording();
 });
 stopButton.addEventListener("click", () => {
   void finishRecording(false);
@@ -289,3 +345,7 @@ window.addEventListener("beforeunload", (event) => {
     event.returnValue = "";
   }
 });
+
+// Open Chrome's screen picker as soon as the window loads: there is no
+// confirmation step, so the first thing the user sees is Chrome's picker.
+void requestRecording();

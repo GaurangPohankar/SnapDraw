@@ -91,6 +91,12 @@ body {
   animation: sd-rec-pulse 1.4s ease-in-out infinite;
 }
 
+/* Opening the picker / saving: the same "working" pulse in the accent colour. */
+.sd-rec__dot--working {
+  background: var(--sd-primary);
+  animation: sd-rec-working-pulse 1.4s ease-in-out infinite;
+}
+
 @keyframes sd-rec-pulse {
   0%,
   100% {
@@ -98,6 +104,23 @@ body {
   }
   60% {
     box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+  }
+}
+
+@keyframes sd-rec-working-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.35);
+  }
+  60% {
+    box-shadow: 0 0 0 6px rgba(124, 58, 237, 0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sd-rec__dot--live,
+  .sd-rec__dot--working {
+    animation: none;
   }
 }
 
@@ -153,7 +176,7 @@ body {
   cursor: default;
 }
 
-.sd-rec__button--start {
+.sd-rec__button--retry {
   background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%);
   color: #ffffff;
 }

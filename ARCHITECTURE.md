@@ -24,7 +24,7 @@ scene, theme, asset path and main menu rather than forking it.
 | --- | --- | --- |
 | Toolbar popup | `src/popup/popup.html` | Closes on focus loss |
 | Background service worker | `src/background/service-worker.ts` | Ephemeral; may stop between events |
-| Screenshot editor tab | `src/editor/editor.html` | Long-lived, `?session=<uuid>` |
+| Screenshot editor tab | `src/editor/editor.html` | Long-lived, `?session=<uuid>` or `?blank=1` |
 | Video editor tab | `src/video/video.html` | Long-lived, `?session=<uuid>` |
 | Offscreen recorder | `src/offscreen/offscreen.html` | Hidden, no UI |
 | Screen recorder window | `src/recorder/recorder.html` | Visible popup-type window, self-closes |
@@ -45,25 +45,27 @@ scene, theme, asset path and main menu rather than forking it.
 | `src/services/storage.service.ts` | IndexedDB open/upgrade, CRUD, history listing, trim, TTL purge. |
 | `src/services/thumbnail.service.ts` | ≤320 px thumbnails at capture time and on-demand backfill for legacy rows. |
 | `src/services/image.service.ts` | Load/decode a stored capture into the data URL + dimensions the editor needs. |
-| `src/services/export.service.ts` | `exportToBlob` wrapper (1:1, white background, padding), size guard, filenames, `downloadBlob`. |
+| `src/services/preferences.service.ts` | Canvas preference defaults, validation, local persistence (`localStorage`) and change subscription. |
+| `src/services/export.service.ts` | `exportToBlob` wrapper (1:1, chosen/white background, padding), size guard, filenames, `downloadBlob`. |
 | `src/services/clipboard.service.ts` | Async Clipboard PNG writes with typed failure modes. |
 | `src/services/recording.service.ts` | `tabCapture` stream-id handover, recording names, save recording as a history row. |
 | `src/services/video.service.ts` | WebM mime preference, video record detection, duration/filename formatting, video thumbnails. |
 | `src/services/video-export.service.ts` | Frame compositing, PNG still, real-time annotated WebM export (canvas stream + audio graph). |
-| `src/popup/Popup.tsx`, `useCapture.ts`, `useRecentScreenshots.ts`, `openScreenshot.ts`, `shortcut.ts` | Capture action, split record controls, live timer, recent/history UI, capture state machine, editor routing. |
-| `src/editor/Editor.tsx` | URL parsing, load/error screens, custom `MainMenu`, clear annotations, scene mirror, `?` help suppression. |
-| `src/editor/EditorCanvas.tsx` | Initial scene (one locked image + binary file), `UIOptions`, one-time fit to content. |
-| `src/editor/EditorHeader.tsx` | Undo/redo, reset view, lock toggle, Copy Image, Download. |
+| `src/popup/Popup.tsx`, `useCapture.ts`, `useRecentScreenshots.ts`, `openScreenshot.ts`, `shortcut.ts` | Capture action, **Blank canvas** action, split record controls, live timer, recent/history UI, capture state machine, editor routing. |
+| `src/editor/Editor.tsx` | URL parsing (including `?blank=1`), load/error screens, custom `MainMenu` (with **Canvas preferences**), clear annotations, scene mirror, `?` help suppression. |
+| `src/editor/EditorCanvas.tsx` | Initial scene (one locked image + binary file, or empty for a blank canvas), background preference, `UIOptions`, one-time fit to content. |
+| `src/editor/EditorHeader.tsx` | Undo/redo, reset view, lock toggle (captures only), Copy Image, Download; blank-canvas metadata. |
+| `src/editor/CanvasPreferencesDialog.tsx`, `useCanvasPreferences.ts` | Theme + canvas-background dialog and the persisted preference hook shared by both editors. |
 | `src/editor/excalidrawActions.ts` | Synthetic Ctrl/Cmd+Z dispatch, scene reads, fit-to-content. |
-| `src/editor/editor.css` | Shell/header CSS, hidden Excalidraw help/library, `filter: none` dark-canvas parity. |
-| `src/editor/AboutDialog.tsx`, `links.ts`, `useColorScheme.ts` | Local About dialog, the only outbound links, live OS theme. |
+| `src/editor/editor.css` | Shell/header CSS, hidden Excalidraw help/library, `filter: none` dark-canvas and swatch parity, preferences dialog. |
+| `src/editor/AboutDialog.tsx`, `links.ts`, `useColorScheme.ts` | Local About dialog, the only outbound links, theme type/fallback. |
 | `src/video/VideoEditor.tsx` | Loads the recording, object URL, transport, copy frame, export progress/cancel, download original. |
 | `src/video/VideoStage.tsx` | `<video>` (`object-fit: contain`) + transparent Excalidraw overlay exactly over the video rect. |
 | `src/video/VideoHeader.tsx`, `TransportBar.tsx` | Export/more menu and custom playback controls. |
 | `src/offscreen/offscreen.ts` | Owns `getUserMedia` + `MediaRecorder`, status, finalisation and `saveRecording` for "This tab". |
-| `src/recorder/recorder.ts` | `getDisplayMedia`, picker handling, `MediaRecorder`, timer, save/discard and worker notifications. |
+| `src/recorder/recorder.ts` | `getDisplayMedia` on load (Chrome picker appears immediately), `MediaRecorder`, timer, save/discard and worker notifications. |
 | `scripts/copy-fonts.mjs`, `validate-build.mjs`, `e2e.mjs` | Font copy, dist validation, headless CDP E2E harness. |
-| `tests/*.test.ts` | Vitest suites (storage, helpers, messaging, manifest, services, readback shim). |
+| `tests/*.test.ts` | Vitest suites (storage, helpers, messaging, manifest, services, readback shim, preferences). |
 | `.sandbox/*` | Gitignored local debug + headed-Chrome verification scripts; not shipped. |
 
 ## 3. End-to-end flows
@@ -100,6 +102,9 @@ sequenceDiagram
 - The record is **kept** after the editor opens. Refreshing `editor.html?session=…` and reopening from
   history both work; only failed editor-tab creation deletes the freshly stored record.
 - The scene is one locked image element at natural pixel size, wrapped in an SVG data URL (§8).
+- The popup's **Blank canvas** action skips the service worker/IndexedDB entirely and opens the same
+  editor at `editor.html?blank=1`; the editor then renders an empty scene with the saved canvas
+  background (see §3.6).
 - The keyboard command shares this pipeline; with no popup open, failures set an `!` badge/tooltip and
   open a debounced `?error=<CODE>` explanation tab.
 
@@ -162,8 +167,7 @@ sequenceDiagram
   U->>P: Whole screen
   P->>R: windows.create(recorder.html, type=popup)
   P->>P: window.close()
-  U->>R: Start sharing
-  R->>CP: getDisplayMedia(video, audio true then false)
+  R->>CP: getDisplayMedia(video, audio true then false) on load
   CP-->>R: display MediaStream or error
   R->>SW: recording:started, source=desktop
   Note over R: MediaRecorder + live timer
@@ -177,17 +181,25 @@ sequenceDiagram
 - Chrome requires a visible extension page for the screen picker, and a `desktopCapture` stream id
   cannot be consumed by the hidden offscreen document. Hence the compact visible recorder window (a
   window, not a tab) that closes itself after save/cancel.
-- `getDisplayMedia` is retried video-only when audio negotiation fails; cancelling the picker starts
-  nothing and shows friendly copy.
+- The recorder page calls `getDisplayMedia` as soon as it loads, so Chrome's picker is the first UI the
+  user sees: there is no intermediate **Start sharing** confirmation. Initial status is "Opening
+  Chrome's picker…"; recording status/controls replace it once the picker is answered.
+- `getDisplayMedia` is retried video-only when audio negotiation fails; cancelling the picker
+  (`NotAllowedError`) closes the window without starting anything. Other failures show the error plus
+  a **Try again** button that re-runs `getDisplayMedia`. Current Chrome allows the call without a
+  fresh transient activation; if Chrome enforces activation later, the auto call would reject and a
+  compatibility fallback (a retry click) would be needed.
 - The recorder tells the worker when recording starts/stops/cancels so the `REC` badge stays owned by
   the service worker.
 
 ### 3.4 PNG export and clipboard
 
 `exportSceneToPngBlob()` (`src/services/export.service.ts`) calls `exportToBlob` with `exportScale: 1`,
-`exportBackground: true`, `exportWithDarkMode: false`, white `viewBackgroundColor` and 16 px padding;
-a pre-flight guard rejects scenes above 16,384 px per side. The PNG is then written to the clipboard
-(`ClipboardItem image/png`) or downloaded through a programmatic anchor + object URL.
+`exportBackground: true`, `exportWithDarkMode: false`, 16 px padding and a background derived from the
+scene: a solid `viewBackgroundColor` chosen in **Canvas preferences** is used as-is, while
+`transparent` falls back to white. A pre-flight guard rejects scenes above 16,384 px per side. The PNG
+is then written to the clipboard (`ClipboardItem image/png`) or downloaded through a programmatic
+anchor + object URL.
 
 ### 3.5 Annotated video export
 
@@ -223,7 +235,27 @@ thumbnails via `ensureThumbnailFor`. `src/popup/openScreenshot.ts` routes `kind:
 video editor and everything else to the image editor. Both editors take only `?session=<uuid>`; media
 always comes from IndexedDB.
 
-## 4. Local data (IndexedDB)
+### 3.6 Canvas preferences and blank canvas
+
+- **Canvas preferences** (`src/services/preferences.service.ts`, `src/editor/useCanvasPreferences.ts`)
+  store `{ theme: "system" | "light" | "dark", background: string }` in extension-origin
+  `localStorage` under `snapdraw.canvas-preferences.v1`. Reads are validated/normalised; corrupt or
+  unsupported values fall back to `{ theme: "system", background: "transparent" }`.
+- `useCanvasPreferences` resolves `system` through `matchMedia`, listens for OS changes while that
+  preference is active, and subscribes to `storage`/custom events so other extension tabs follow.
+  Both the screenshot editor and video editor use the resolved theme; the background applies to the
+  screenshot editor only (the video overlay must remain transparent).
+- The dialog (`src/editor/CanvasPreferencesDialog.tsx`) is opened from the SnapDraw `MainMenu` in both
+  editors. Excalidraw 0.18.1 has no preferences panel, so this is SnapDraw's own UI.
+- Changing the background calls `api.updateScene({ appState: { viewBackgroundColor } })`; export uses
+  the same value when solid (`transparent` exports white). Nothing is sent over the network and no
+  Chrome `storage` permission is involved.
+- **Blank canvas:** the popup opens `editor.html?blank=1` (`buildBlankEditorUrl()`); the editor skips
+  the session load, builds an empty scene with the saved background, shows "Untitled canvas" /
+  "Blank canvas", hides the screenshot lock, and sets `sceneReady` as soon as the API is ready.
+  Copy/Download behave like a normal editor (an empty scene still cannot be exported).
+
+
 
 ```text
 database: snapdraw (version 1)
@@ -248,6 +280,10 @@ Retention (`src/services/storage.service.ts`): `HISTORY_LIMIT = 20` newest items
 `HISTORY_RETENTION_MS = 30 days`; pruning runs on install/startup and after captures, and saving a
 recording trims too. `listScreenshots` strips `blob`, so history stays cheap.
 
+Canvas preferences are deliberately **not** in this database: they are a single JSON value in
+extension-origin `localStorage` (`snapdraw.canvas-preferences.v1`), validated on every read. That keeps
+them available instantly at editor boot without waiting on IndexedDB and avoids a `storage` permission.
+
 Invariants: same extension origin for worker + pages (no copy step); the editor never deletes on load;
 deletion happens only through history UI, retention, or a failed editor-tab open; a missing session
 renders a recoverable error screen. Schema changes require a `DATABASE_VERSION` bump and upgrade path.
@@ -265,6 +301,7 @@ and typed wrappers.
 | `SCREEN_RECORDER_PAGE_PATH` | `src/recorder/recorder.html` |
 | `OFFSCREEN_PAGE_PATH` | `src/offscreen/offscreen.html` |
 | `SESSION_QUERY_PARAM` / `ERROR_QUERY_PARAM` | `session` / `error` (+ optional `message`) |
+| `BLANK_QUERY_PARAM` | `blank=1` — open the editor with an empty scene, no session |
 
 Popup → worker:
 
@@ -289,7 +326,8 @@ loops. UI helpers (`requestCapture`, `startRecording`, `stopRecording`, `getReco
 throw — failures become `SnapDrawErrorPayload` with a `CaptureErrorCode` (`RESTRICTED_PAGE`,
 `NO_ACTIVE_TAB`, `CAPTURE_FAILED`, `STORAGE_FAILED`, `EDITOR_TAB_FAILED`, `UNKNOWN`). Timeouts keep a
 stuck recorder from hanging the UI: 8 s offscreen commands, 5 s createDocument, 2 s close, 5 s
-offscreen `getUserMedia`. Media never goes in a message or URL — only the session UUID.
+offscreen `getUserMedia`. Media never goes in a message or URL — only the session UUID, or the
+`blank=1` flag for an editor with no stored media.
 
 ## 6. Security and trust boundaries
 
@@ -345,6 +383,10 @@ extension HTML references a remote or missing asset.
 | --- | --- | --- |
 | Offscreen document owns tab-recording `MediaRecorder` | Popup dies on blur; MV3 worker has no DOM | Document lifecycle + strict audio constraints |
 | Visible recorder window for whole-screen capture | `getDisplayMedia` needs a visible page for the picker | Extra window must stay open; not a tab |
+| Recorder calls `getDisplayMedia` on load (no Start click) | Chrome's picker is the only step the user should see | Relies on current Chrome allowing the call without fresh activation; future Chrome may require a fallback click |
+| Canvas preferences in extension-origin `localStorage` | Instant at boot; no IndexedDB wait and no `storage` permission | Per-origin rather than `chrome.storage`; no sync between devices (matches local-only) |
+| Blank canvas via `editor.html?blank=1` | Same editor surface with no capture lifecycle | Blank scenes are ephemeral (annotations are not persisted, same as captures) |
+| Export background from the scene preference | Screen and PNG agree; canvas tint is useful on blank canvases | Transparent always falls back to white |
 | Explicit `chromeMediaSource` tab-audio constraints | Bare `audio: true` crashes the offscreen renderer | Must preserve constraint shape; video-only fallback |
 | Keep captures in IndexedDB (no delete-on-load) | Refresh-safe editors + reopenable history | Needs retention, thumbnails, delete/clear UI |
 | Screenshot wrapped in an SVG data URL | Excalidraw dark theme counter-inverts raster images (colour shift) | Extra indirection; file mime is `image/svg+xml` |
@@ -360,6 +402,7 @@ extension HTML references a remote or missing asset.
 
 - Visible-viewport capture only (no full-page stitching); captures above 8,192 px per side are rejected.
 - Annotations are not persisted — refreshing an editor reloads the capture but not the drawing scene.
+- Canvas preferences persist locally, but a blank canvas drawing itself is not saved to history.
 - Video annotations are not time-based; one scene covers the whole clip.
 - Annotated export is real time and WebM-only (VP8/VP9 + Opus); no MP4, trimming or WebCodecs speedup.
 - Recording audio is source-dependent: tab audio only for "This tab"; whole-screen audio depends on the
@@ -381,7 +424,9 @@ extension HTML references a remote or missing asset.
   upgrade in `src/services/storage.service.ts`.
 - **Sharing** — deliberately absent; a future opt-in provider layer would need explicit host
   permissions and must keep the default no-network posture.
-- **Settings** — `HISTORY_LIMIT` and `HISTORY_RETENTION_MS` are the retention knobs to surface.
+- **Settings** — retention (`HISTORY_LIMIT`/`HISTORY_RETENTION_MS`) is not exposed yet; canvas
+  preferences (`src/services/preferences.service.ts`) are the existing user-settings layer to extend.
+  Add new fields with validation/defaults and keep them local-only.
 - **Video depth** — timestamped annotations, trimming, WebCodecs/MP4: start at the recorder page and
   `exportAnnotatedVideo()`.
 - **Commands** — add entries to `public/manifest.json` and handle them in

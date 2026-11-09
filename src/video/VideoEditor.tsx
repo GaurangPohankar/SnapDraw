@@ -15,8 +15,9 @@ import { Button } from "../components/Button";
 import { Logo } from "../components/Logo";
 import { ToastViewport, useToast } from "../components/Toast";
 import { AboutDialog } from "../editor/AboutDialog";
+import { CanvasPreferencesDialog } from "../editor/CanvasPreferencesDialog";
 import { CloseIcon, WarningIcon } from "../editor/icons";
-import { useColorScheme } from "../editor/useColorScheme";
+import { useCanvasPreferences } from "../editor/useCanvasPreferences";
 import {
   ClipboardError,
   copyImageBlobToClipboard,
@@ -209,6 +210,7 @@ export function VideoEditor() {
   const [exportRatio, setExportRatio] = useState(0);
   const [exporting, setExporting] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
 
   const sessionId = useMemo(() => readSessionId(), []);
   const [screenError, setScreenError] = useState<VideoScreenMessage | null>(() =>
@@ -219,7 +221,12 @@ export function VideoEditor() {
   const overlayRef = useRef<HTMLDivElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
-  const theme = useColorScheme();
+  const {
+    preferences,
+    theme,
+    setTheme,
+    setBackground,
+  } = useCanvasPreferences();
   const { toasts, showToast, dismissToast } = useToast();
 
   // Load the recording once; the record (and its blob) stays in IndexedDB so
@@ -525,6 +532,7 @@ export function VideoEditor() {
           annotationCount={annotationCount}
           onClearAnnotations={handleClearAnnotations}
           onShowAbout={handleShowAbout}
+          onShowPreferences={() => setPreferencesOpen(true)}
         />
 
         <TransportBar videoRef={videoRef} durationMs={effectiveDurationMs} />
@@ -541,6 +549,21 @@ export function VideoEditor() {
       />
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+
+      <CanvasPreferencesDialog
+        open={preferencesOpen}
+        onClose={() => setPreferencesOpen(false)}
+        preferences={preferences}
+        showBackground={false}
+        onChange={(patch) => {
+          if (patch.theme !== undefined) {
+            setTheme(patch.theme);
+          }
+          if (patch.background !== undefined) {
+            setBackground(patch.background);
+          }
+        }}
+      />
     </div>
   );
 }

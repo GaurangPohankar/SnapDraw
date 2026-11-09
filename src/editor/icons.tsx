@@ -166,3 +166,42 @@ export function CloseIcon(props: IconProps) {
     </IconShell>
   );
 }
+
+/** Gear mark for the "Canvas preferences" menu item. */
+export function SettingsIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <circle cx="8" cy="8" r="2.1" />
+      <path d="M8 1.8v1.5M8 12.7v1.5M1.8 8h1.5M12.7 8h1.5M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M12.4 3.6l-1.1 1.1M4.7 11.3l-1.1 1.1" />
+    </IconShell>
+  );
+}
+
+/** Sun mark for the light theme option. */
+export function SunIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <circle cx="8" cy="8" r="2.7" />
+      <path d="M8 1.5v1.2M8 13.3v1.2M1.5 8h1.2M13.3 8h1.2M3.4 3.4l.9.9M11.7 11.7l.9.9M12.6 3.4l-.9.9M4.3 11.7l-.9.9" />
+    </IconShell>
+  );
+}
+
+/** Crescent mark for the dark theme option. */
+export function MoonIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <path d="M13.1 9.8A5.6 5.6 0 0 1 6.2 2.9a5.7 5.7 0 1 0 6.9 6.9Z" />
+    </IconShell>
+  );
+}
+
+/** Monitor mark for the "follow system" theme option. */
+export function MonitorIcon(props: IconProps) {
+  return (
+    <IconShell {...props}>
+      <rect x="1.8" y="2.7" width="12.4" height="8.6" rx="1.2" />
+      <path d="M5.6 13.5h4.8M8 11.3v2.2" />
+    </IconShell>
+  );
+}
