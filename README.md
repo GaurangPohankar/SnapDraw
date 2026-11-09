@@ -74,8 +74,9 @@ stay readable at a glance.*
 
 ## Features
 
-- **One click to capture** – the popup is a single primary action; the visible viewport is captured
-  with `chrome.tabs.captureVisibleTab()` in PNG at its native resolution.
+- **One-click action grid** – the popup shows four large colour-coded cards: **Capture**, **Tab
+  recording**, **Whole screen recording** and **Blank canvas**. Capture grabs the visible viewport with
+  `chrome.tabs.captureVisibleTab()` in PNG at its native resolution.
 - **Editor opens automatically** – a new tab loads the screenshot straight into an Excalidraw canvas.
 - **Blank canvas** – a separate **Blank canvas** button opens an empty Excalidraw editor tab when you
   just want to draw a diagram, with no screenshot behind it. Its exports are normal PNGs.
@@ -96,14 +97,14 @@ stay readable at a glance.*
 - **Copy to clipboard** – exports the annotated PNG and writes it to the clipboard (Slack, Discord,
   mail, docs…), with a confirmation toast and graceful error handling.
 - **Download PNG** – full-quality 1:1 export (screenshot + annotations + breathing-room padding).
-- **Record in the background** – two split buttons in one line record either **This tab** or the
-  **Whole screen**:
-  - **This tab** needs no recorder tab or window at all: an offscreen document owns the
+- **Record in the background** – the **Tab recording** and **Whole screen recording** cards cover both
+  video sources:
+  - **Tab recording** needs no recorder tab or window at all: an offscreen document owns the
     `MediaRecorder`, so recording continues after the popup closes. Click the SnapDraw icon again to
     see the live timer, then **Stop and open editor** (or **Cancel recording**).
-  - **Whole screen** opens a compact **screen-share window** whose first action is Chrome's own
-    screen/window picker — there is no intermediate confirmation step. The same window records and
-    then opens the editor.
+  - **Whole screen recording** opens a compact **screen-share window** whose first action is Chrome's
+    own screen/window picker — there is no intermediate confirmation step. The same window records
+    and then opens the editor.
   - The toolbar shows a red **REC** badge while either recording is active.
 - **Annotate videos with the same Excalidraw tools** – the video editor plays the recording with a
   fully transparent Excalidraw layer positioned exactly over the video, so every drawing tool works.
@@ -134,7 +135,7 @@ stay readable at a glance.*
           ▼
  ┌────────────────────┐   runtime message    ┌─────────────────────────┐
  │  Popup (React)     │ ───────────────────▶ │  Background service     │
- │  Capture button    │                      │  worker (MV3)           │
+ │  4 action cards    │                      │  worker (MV3)           │
  └────────────────────┘                      │  · active tab + URL     │
                                              │  · captureVisibleTab    │
                                              │  · data URL → Blob      │
@@ -162,8 +163,8 @@ the same capture can be reopened later from the popup's history. A retention swe
 ### Video recording
 
 ```text
-  popup split action (user gesture, no new tab)
-    ├─ "This tab" ────▶ chrome.tabCapture.getMediaStreamId()
+  popup action cards (user gesture, no new tab)
+    ├─ "Tab recording" ────▶ chrome.tabCapture.getMediaStreamId()
     │                        │  streamId
     │                        ▼
     │   service worker ──▶ offscreen document (src/offscreen/offscreen.html)
@@ -176,7 +177,7 @@ the same capture can be reopened later from the popup's history. A retention swe
     │                        ▼
     │                    video.html?session=<uuid>   (opened by the worker)
     │
-    └─ "Whole screen" ─▶ compact screen-share window (src/recorder/recorder.html)
+    └─ "Whole screen recording" ─▶ compact screen-share window (src/recorder/recorder.html)
                              │ getDisplayMedia() → Chrome screen/window picker (opens immediately)
                              │ MediaRecorder(WebM) · live timer · toolbar "REC" badge
                              ▼
@@ -234,8 +235,8 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
 ## Using SnapDraw
 
 1. Open any normal website.
-2. Click the SnapDraw icon → **Capture Screenshot** (or press `Ctrl+Shift+S` / `⌘+Shift+S`). For a
-   drawing-only session, click **Blank canvas** instead.
+2. Click the SnapDraw icon and choose a card: **Capture** (or press `Ctrl+Shift+S` / `⌘+Shift+S`),
+   **Tab recording**, **Whole screen recording** or **Blank canvas** (drawing-only session).
 3. The editor tab opens with the screenshot centred and ready to annotate (or an empty canvas).
 4. Annotate with the Excalidraw toolbar on top.
 5. **Copy Image** and paste anywhere, or **Download** to save `<document-name>.png`.
@@ -262,15 +263,16 @@ Open the SnapDraw menu → **Canvas preferences** in any editor tab:
 ### Recording a video
 
 1. Open the page you want to record and click the SnapDraw icon.
-2. Use the split record control:
-   - **This tab** records only the current tab. No recorder tab/window is opened; the popup closes
+2. Use the action cards:
+   - **Tab recording** records only the current tab. No recorder tab/window is opened; the popup closes
      and recording continues in the background.
-   - **Whole screen** opens a compact **screen-share window** and immediately shows Chrome's
+   - **Whole screen recording** opens a compact **screen-share window** and immediately shows Chrome's
      screen/window picker. Pick the screen or window and recording starts right away (this window is
      the visible page Chrome requires for screen sharing; it is not a tab).
 3. The toolbar shows a red **REC** badge. Switch tabs, scroll, demo the app — recording continues.
-4. For **This tab**, click the SnapDraw icon again to reopen the popup and use **Stop and open editor**
-   / **Cancel recording**. For **Whole screen**, use the buttons in the recorder window.
+4. For **Tab recording**, click the SnapDraw icon again to reopen the popup and use **Stop and open
+   editor** / **Cancel recording**. For **Whole screen recording**, use the buttons in the recorder
+   window.
 5. Stopping saves the WebM locally and opens the **video editor** tab.
 6. Annotate over the video with the Excalidraw tools (the layer is transparent and exactly covers the
    video). Use the transport bar to play/seek/mute; **Copy frame** copies the annotated current frame,
@@ -339,7 +341,7 @@ snapdraw/
 
 | Component | Responsibility |
 | --- | --- |
-| **Popup** (`src/popup/`) | Renders the capture action, **Blank canvas** action, record split control, live shortcut hint, local-only trust copy, inline error states, a compact **Recent** thumbnail preview and the full **Screenshot history** view (reopen, delete, clear). Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
+| **Popup** (`src/popup/`) | Renders the four-card action grid (**Capture**, **Tab recording**, **Whole screen recording**, **Blank canvas**), live shortcut hint, local-only trust copy, inline error states, a compact **Recent** thumbnail preview and the full **Screenshot history** view (reopen, delete, clear). Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
 | **Service worker** (`src/background/`) | Resolves the active tab, rejects restricted pages, captures the viewport, stores the screenshot + thumbnail, opens the editor tab, and handles the keyboard command. When a keyboard capture fails there is no popup to show the error, so the worker flags the toolbar icon (`!` badge + tooltip) and opens a short explanation tab. |
 | **Screenshot service** (`src/services/screenshot.service.ts`) | The capture pipeline itself (including thumbnail generation and history pruning); pure helpers (`classifyTabUrl`, `buildScreenshotName`, `toErrorPayload`) are unit-tested. |
 | **Editor** (`src/editor/`) | Loads the capture (or opens blank) from IndexedDB, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu with **Canvas preferences**, and loading/error screens. Refresh-safe: the stored capture is not deleted. |
@@ -504,13 +506,12 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (126 checks, all driven through real input events and real downloads):
+It verifies (127 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
-- popup renders the capture action, **Blank canvas** action, record-video actions, shortcut hint,
-  local-only copy, version, dash-free tagline and the history entry point; the capture button has no
-  helper text and the capture/record actions share one size/shape with distinct colours (primary
-  gradient vs. warm record gradient);
+- popup renders four large action cards (**Capture**, **Tab recording**, **Whole screen recording**,
+  **Blank canvas**) in a 2×2 grid with distinct accent colours, no helper text under the capture label,
+  plus the shortcut hint, local-only copy, version, dash-free tagline and history entry point;
 - one click captures a 1200×760 viewport, opens the editor tab with that session, and loads the
   screenshot into Excalidraw at exactly 1232×792 (native size + 16px padding);
 - the capture is **saved** (not deleted), and reloading the editor tab restores the screenshot with no
@@ -532,11 +533,9 @@ It verifies (126 checks, all driven through real input events and real downloads
 - the capture view's **recent-captures preview** shows the saved thumbnails (verified to contain the
   actual page content, not a blank block), links to the full history and opens the newest capture
   when clicked; a legacy capture without a thumbnail gets one generated and persisted automatically;
-- the popup exposes **This tab** and **Whole screen** recording actions, `tabCapture` is available,
-  and **Whole screen** auto-starts Chrome's picker in the recorder window — no Start-sharing step and
-  the recorder controls appear only once recording begins (screenshot saved);
-- the popup capture button has no helper text, and the two split recording buttons sit on one line
-  with distinct recording colours;
+- the **Tab recording** and **Whole screen recording** cards are wired up, `tabCapture` is available,
+  and **Whole screen recording** auto-starts Chrome's picker in the recorder window — no Start-sharing
+  step and the recorder controls appear only once recording begins (screenshot saved);
 - **Blank canvas** opens a standalone editor tab with no capture session, shows *Untitled canvas* /
   *Blank canvas*, omits the screenshot lock, and draws and exports a PNG;
 - the **video editor** loads a real WebM, mounts the transparent Excalidraw overlay over the video,

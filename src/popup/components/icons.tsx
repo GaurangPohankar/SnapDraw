@@ -82,6 +82,7 @@ export function ScreenIcon(props: IconProps) {
       <rect x="2.9" y="4.4" width="18.2" height="12.4" rx="2.1" />
       <path d="M8.4 20h7.2" />
       <path d="M12 16.8V20" />
+      <path d="M10.1 8.1 15 10.6l-4.9 2.5Z" fill="currentColor" stroke="none" />
     </IconBase>
   );
 }

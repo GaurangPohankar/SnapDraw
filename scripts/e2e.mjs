@@ -1134,7 +1134,7 @@ async function main() {
           };
         })()`,
       );
-      check("primary button says Capture Screenshot", /Capture Screenshot/i.test(popupState.buttonText), popupState.buttonText);
+      check("primary action says Capture", /^Capture$/.test(popupState.buttonText), popupState.buttonText);
       check("shortcut hint is rendered", popupState.hasShortcutHint === true);
       check("local-only trust copy is present", popupState.mentionsLocal === true);
       check("version footer is rendered", /^v\d+\.\d+\.\d+$/.test(popupState.version.trim()), popupState.version);
@@ -1149,51 +1149,62 @@ async function main() {
       const actionStyles = await browser.evaluate(
         pages.popup.sessionId,
         `(() => {
-          const capture = document.querySelector("button.sd-popup__capture");
-          const segments = Array.from(
-            document.querySelectorAll(".sd-popup__record-segment"),
-          );
-          const rects = segments.map((segment) => {
-            const rect = segment.getBoundingClientRect();
+          const cards = Array.from(document.querySelectorAll(".sd-popup__cards .sd-popup__card"));
+          const rects = cards.map((card) => {
+            const rect = card.getBoundingClientRect();
+            const styles = getComputedStyle(card);
             return {
               top: Math.round(rect.top),
+              left: Math.round(rect.left),
               width: Math.round(rect.width),
-              label: segment.getAttribute("aria-label"),
+              height: Math.round(rect.height),
+              label: (card.textContent ?? "").replace(/\\s+/g, " ").trim(),
+              ariaLabel: card.getAttribute("aria-label"),
+              accent: styles.getPropertyValue("--sd-card-accent").trim(),
             };
           });
           return {
-            captureClass: capture?.className ?? "",
-            captureText: (capture?.textContent ?? "").replace(/\\s+/g, " ").trim(),
-            segmentClasses: segments.map((segment) => segment.className),
-            segmentLabels: rects.map((rect) => rect.label),
-            segmentTops: rects.map((rect) => rect.top),
-            segmentWidths: rects.map((rect) => rect.width),
+            count: cards.length,
+            captureClass: document.querySelector("button.sd-popup__capture")?.className ?? "",
+            captureText: (document.querySelector("button.sd-popup__capture")?.textContent ?? "")
+              .replace(/\\s+/g, " ")
+              .trim(),
+            rects,
           };
         })()`,
       );
       check(
-        "capture button has no helper text",
-        /^Capture Screenshot$/.test(actionStyles.captureText),
+        "capture card has no helper text",
+        /^Capture$/.test(actionStyles.captureText),
         actionStyles.captureText,
       );
       check(
-        "capture and record actions use distinct colours",
-        actionStyles.captureClass.includes("sd-button--primary") &&
-          actionStyles.segmentClasses.every((className) =>
-            className.includes("sd-button--record"),
-          ),
-        JSON.stringify(actionStyles.segmentClasses),
+        "popup actions form a 2×2 grid",
+        actionStyles.count === 4 &&
+          actionStyles.rects[0].top === actionStyles.rects[1].top &&
+          actionStyles.rects[2].top === actionStyles.rects[3].top &&
+          actionStyles.rects[0].left === actionStyles.rects[2].left &&
+          actionStyles.rects[1].left === actionStyles.rects[3].left &&
+          actionStyles.rects.every((rect) => rect.width > 100 && rect.height > 90),
+        JSON.stringify(actionStyles.rects),
       );
       check(
-        "two split recording buttons share one line",
-        actionStyles.segmentLabels.join(",") === "Record this tab,Record whole screen" &&
-          actionStyles.segmentTops.every((top) => top === actionStyles.segmentTops[0]) &&
-          actionStyles.segmentWidths.every((width) => width > 60),
-        JSON.stringify(actionStyles),
+        "popup actions use distinct accent colours",
+        new Set(actionStyles.rects.map((rect) => rect.accent)).size === 4 &&
+          actionStyles.captureClass.includes("sd-popup__card--capture"),
+        JSON.stringify(actionStyles.rects.map((rect) => rect.accent)),
+      );
+      check(
+        "popup action labels are concise",
+        actionStyles.rects.map((rect) => rect.label).join(",") ===
+          "Capture,Tab recording,Whole screen recording,Blank canvas" &&
+          actionStyles.rects.map((rect) => rect.ariaLabel).join(",") ===
+            "Capture Screenshot,Record this tab,Record whole screen,Open blank canvas",
+        JSON.stringify(actionStyles.rects),
       );
       pages.popupShot = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
         width: 340,
-        height: 620,
+        height: 560,
         activate: false,
       });
       await waitForSelector(browser, pages.popupShot.sessionId, "button.sd-popup__capture");
