@@ -35,7 +35,6 @@
   "permissions": [
     "activeTab",
     "clipboardWrite",
-    "desktopCapture",
     "offscreen",
     "tabCapture"
   ],

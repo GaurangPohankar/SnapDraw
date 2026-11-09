@@ -22,6 +22,11 @@ recordings, annotations and every asset live on your machine.
 *The video editor plays the recording with a transparent Excalidraw layer on top; annotations are
 baked into the exported WebM (or copied as a still frame).*
 
+![SnapDraw screen recorder window](docs/screenshots/screen-recorder.png)
+
+*"Whole screen" opens a compact screen-share window (not a tab) where Chrome's picker is answered; the
+same window records, then opens the video editor.*
+
 ![SnapDraw menu](docs/screenshots/editor-menu.png)
 
 *The SnapDraw menu replaces Excalidraw's default menu – its only links point back to this project.*
@@ -80,10 +85,13 @@ stay readable at a glance.*
   mail, docs…), with a confirmation toast and graceful error handling.
 - **Download PNG** – full-quality 1:1 export (screenshot + annotations + breathing-room padding).
 - **Record in the background** – two split buttons in one line record either **This tab** or the
-  **Whole screen**. No recorder tab is opened: an offscreen document owns the `MediaRecorder`, so
-  recording keeps running after the popup closes. Click the SnapDraw icon again to see the live timer,
-  then **Stop and open editor** (or **Cancel recording**). The toolbar shows a red **REC** badge while
-  a recording is active.
+  **Whole screen**:
+  - **This tab** needs no recorder tab or window at all: an offscreen document owns the
+    `MediaRecorder`, so recording continues after the popup closes. Click the SnapDraw icon again to
+    see the live timer, then **Stop and open editor** (or **Cancel recording**).
+  - **Whole screen** opens a compact **screen-share window** (not a tab) where Chrome's own
+    screen/window picker is answered once; the same window records and then opens the editor.
+  - The toolbar shows a red **REC** badge while either recording is active.
 - **Annotate videos with the same Excalidraw tools** – the video editor plays the recording with a
   fully transparent Excalidraw layer positioned exactly over the video, so every drawing tool works.
   Annotations cover the whole clip. **Copy frame** puts the annotated current frame on the clipboard,
@@ -138,31 +146,36 @@ the same capture can be reopened later from the popup's history. A retention swe
 
 ```text
   popup split action (user gesture, no new tab)
-    ├─ "This tab"     → chrome.tabCapture.getMediaStreamId()
-    └─ "Whole screen" → chrome.desktopCapture.chooseDesktopMedia(["screen","window"])
-          │  streamId
-          ▼
-  service worker ──▶ offscreen document (src/offscreen/offscreen.html)
-          │            │ getUserMedia({chromeMediaSource: tab | desktop})
-          │            │ MediaRecorder(WebM + tab audio when available)
-          │            │ live timer state · toolbar "REC" badge
-          │            ▼
-          │         saveRecording() ──▶ IndexedDB (kind: "video", duration, thumbnail)
-          │            │
-          │            ▼
-          │         video.html?session=<uuid>   (opened by the worker)
-          │
-          └─ popup reopened while recording → GET_STATUS → Stop & edit / Cancel
+    ├─ "This tab" ────▶ chrome.tabCapture.getMediaStreamId()
+    │                        │  streamId
+    │                        ▼
+    │   service worker ──▶ offscreen document (src/offscreen/offscreen.html)
+    │                        │ getUserMedia({chromeMediaSource: "tab", ...})
+    │                        │ MediaRecorder(WebM + tab audio when available)
+    │                        │ live timer state · toolbar "REC" badge
+    │                        ▼
+    │                    saveRecording() ──▶ IndexedDB (kind: "video", duration, thumbnail)
+    │                        │
+    │                        ▼
+    │                    video.html?session=<uuid>   (opened by the worker)
+    │
+    └─ "Whole screen" ─▶ compact screen-share window (src/recorder/recorder.html)
+                             │ getDisplayMedia() → Chrome screen/window picker
+                             │ MediaRecorder(WebM) · live timer · toolbar "REC" badge
+                             ▼
+                         saveRecording() ──▶ IndexedDB ──▶ video editor
 
   video editor: <video> + transparent Excalidraw overlay (object-fit: contain rect)
   Copy frame (PNG) · Download annotated video (WebM) · Download original
 ```
 
-The popup only hands a short-lived stream id to the service worker; the actual `MediaRecorder` lives
-in a hidden offscreen document, so **no recorder tab is opened and the popup can close**. Starting a
-recording requires the toolbar-icon gesture (that is what grants `activeTab`/`tabCapture` for the tab).
-Chrome-protected pages (`chrome://`, the Web Store, DevTools) are rejected with a friendly message
-before recording starts, and a failed start cleans up the offscreen document again.
+**This tab** needs no extra tab or window: the popup hands a short-lived stream id to the service
+worker and the `MediaRecorder` lives in a hidden offscreen document. **Whole screen** uses a compact
+visible window because Chrome only lets a visible extension page answer its screen-share picker; the
+window is not a tab and closes itself after saving. Starting either recording requires the toolbar-icon
+gesture (that is what grants `activeTab`/`tabCapture` for the tab). Chrome-protected pages (`chrome://`,
+the Web Store, DevTools) are rejected with a friendly message before recording starts, and a failed
+start cleans up the offscreen document again.
 
 ## Quick start
 
@@ -218,14 +231,16 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
 ### Recording a video
 
 1. Open the page you want to record and click the SnapDraw icon.
-2. Use the split record control: **This tab** records only the current tab; **Whole screen** asks
-   Chrome which screen/window to share, then records all of it (including browser tabs and apps).
-   Recording starts immediately — **no recorder tab is opened**.
-3. The popup closes; the toolbar shows a red **REC** badge. Switch tabs, scroll, demo the app — the
-   recording continues in the background.
-4. Click the SnapDraw icon again to reopen the popup: it shows the live timer with **Stop and open
-   editor** and **Cancel recording**.
-5. **Stop and open editor** saves the WebM locally and opens the **video editor** tab.
+2. Use the split record control:
+   - **This tab** records only the current tab. No recorder tab/window is opened; the popup closes
+     and recording continues in the background.
+   - **Whole screen** opens a compact **screen-share window**. Click **Start sharing**, pick the screen
+     or window in Chrome's picker, and recording begins (this window is the visible page Chrome
+     requires for screen sharing; it is not a tab).
+3. The toolbar shows a red **REC** badge. Switch tabs, scroll, demo the app — recording continues.
+4. For **This tab**, click the SnapDraw icon again to reopen the popup and use **Stop and open editor**
+   / **Cancel recording**. For **Whole screen**, use the buttons in the recorder window.
+5. Stopping saves the WebM locally and opens the **video editor** tab.
 6. Annotate over the video with the Excalidraw tools (the layer is transparent and exactly covers the
    video). Use the transport bar to play/seek/mute; **Copy frame** copies the annotated current frame,
    **Download video** renders the annotated WebM (real time), and **More → Download original** saves
@@ -239,7 +254,7 @@ The pointer is the selection tool. Keyboard shortcuts from Excalidraw apply (`1`
 Change the capture shortcut at `chrome://extensions/shortcuts` (SnapDraw → *Capture the visible
 screen…*). The popup always shows the shortcut that is actually registered. The keyboard shortcut
 captures a screenshot; video recording is started from the popup (Chrome needs the icon-click gesture
-for `tabCapture`/`desktopCapture`).
+for `tabCapture`).
 
 ## Scripts
 
@@ -270,6 +285,7 @@ snapdraw/
 │   ├── editor/                     # Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, AboutDialog.tsx,
 │   │                               # excalidrawActions.ts, links.ts, editor.css
 │   ├── offscreen/                  # offscreen.html + offscreen.ts (background MediaRecorder)
+│   ├── recorder/                   # visible screen-share window (recorder.html/.ts/.css)
 │   ├── video/                      # VideoEditor.tsx, VideoStage.tsx, VideoHeader.tsx, TransportBar.tsx
 │   ├── components/                 # Button, Toast, Logo (shared primitives)
 │   ├── services/                   # screenshot, image, storage, thumbnail, recording, video,
@@ -296,7 +312,8 @@ snapdraw/
 | **Screenshot service** (`src/services/screenshot.service.ts`) | The capture pipeline itself (including thumbnail generation and history pruning); pure helpers (`classifyTabUrl`, `buildScreenshotName`, `toErrorPayload`) are unit-tested. |
 | **Editor** (`src/editor/`) | Loads the capture from IndexedDB, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu and loading/error screens. Refresh-safe: the stored capture is not deleted. |
 | **Excalidraw integration** (`src/editor/EditorCanvas.tsx`, `excalidrawActions.ts`) | One locked image element at natural pixel size + `files` map, `fitToContent` on mount, scene updates for lock/clear, PNG export helpers. |
-| **Recorder orchestration** (`src/background/service-worker.ts` + `src/offscreen/`) | The popup sends a `tabCapture`/`desktopCapture` stream id to the worker; the worker creates a hidden offscreen document that owns the `MediaRecorder` (WebM + tab audio), keeps the **REC** badge in sync, answers status/stop requests, saves the recording to IndexedDB and opens the video editor. |
+| **Recorder orchestration** (`src/background/service-worker.ts` + `src/offscreen/`) | For **This tab**: the popup sends a `tabCapture` stream id to the worker; the worker creates a hidden offscreen document that owns the `MediaRecorder` (WebM + tab audio), keeps the **REC** badge in sync, answers status/stop requests, saves the recording to IndexedDB and opens the video editor. |
+| **Screen recorder window** (`src/recorder/`) | For **Whole screen**: a compact visible window answers Chrome's screen/window picker with `getDisplayMedia()`, records with `MediaRecorder`, saves locally, clears the **REC** badge and opens the video editor. Not a tab. |
 | **Video editor** (`src/video/`) | Loads the recording, renders `<video>` with a transparent Excalidraw overlay on the exact video rect, transport controls, Copy frame / Download annotated video / Download original, progress + cancel. |
 | **Video services** (`src/services/recording.service.ts`, `video.service.ts`, `video-export.service.ts`) | Stream-id handover + recording persistence, video metadata/thumbnail/duration helpers, and real-time annotated-WebM export (`canvas.captureStream` + `MediaRecorder`, tab audio mixed via `AudioContext`). |
 | **Services** (`src/services/`) | `storage` (IndexedDB history, thumbnails, pruning), `image` (decode/encode), `export` (PNG blob + download), `clipboard`. |
@@ -321,15 +338,15 @@ snapdraw/
   thumbnail. History/preview show a video-camera icon (images get an image icon) and the duration, and
   open the video editor instead of the image editor (`kind` routing in
   `src/popup/openScreenshot.ts`).
-- **Recording (background, no extra tab):** the popup calls `chrome.tabCapture.getMediaStreamId()` for
-  **This tab** or `chrome.desktopCapture.chooseDesktopMedia(["screen","window"])` for **Whole screen**
-  while it still owns the user gesture. It sends the stream id to the service worker, which creates a
-  hidden offscreen document (`src/offscreen/`) that consumes it with `getUserMedia` and records with
-  `MediaRecorder` (`video/webm;codecs=vp8|vp9,opus`). Tab audio is captured when available and falls
-  back to video-only; whole-screen recording is video-only. The worker reflects the state in a red
-  **REC** badge and answers `RECORDING_STATUS` / `RECORDING_STOP` when the popup is reopened. If the
-  source ends on its own (tab closed, screen share stopped) the offscreen document saves the recording
-  and asks the worker to open the editor.
+- **Recording:** **This tab** uses `chrome.tabCapture.getMediaStreamId()` in the popup; the service
+  worker creates a hidden offscreen document that consumes it with `getUserMedia` (tab audio requested
+  with explicit `chromeMediaSource` constraints) and records with `MediaRecorder`
+  (`video/webm;codecs=vp8|vp9,opus`). It keeps a red **REC** badge, answers `RECORDING_STATUS` /
+  `RECORDING_STOP` when the popup is reopened, and saves when the tab or recording ends. **Whole
+  screen** opens `src/recorder/recorder.html` in a compact window because Chrome only allows a visible
+  extension page to answer `getDisplayMedia()`'s screen picker; that page records, saves the WebM and
+  sends the same worker event to open the editor. In both paths the recording is written to IndexedDB
+  and the editor opens automatically.
 - **Editing:** `src/video/video.html?session=<id>` renders the video with a transparent Excalidraw
   canvas positioned over the `object-fit: contain` video rectangle — annotations map 1:1 onto the
   recording. Annotations cover the whole clip (per-timestamp annotations are a v2 item).
@@ -372,8 +389,9 @@ SnapDraw is designed so that no byte of your screen content can leave the machin
   history so editors can be refreshed and captures can be reopened later. At most 20 items (30 days)
   are kept; delete individual entries or clear everything from the popup's history. Uninstalling
   SnapDraw or clearing the extension's site data removes them.
-- **Video stays local too:** tab recording uses Chrome's `tabCapture` stream, MediaRecorder stores the
-  WebM in IndexedDB, and the annotated export is rendered in-page. No upload, no cloud, no ffmpeg
+- **Video stays local too:** tab recording uses Chrome's `tabCapture` stream, whole-screen recording
+  uses Chrome's screen picker (`getDisplayMedia`), MediaRecorder stores the WebM in IndexedDB, and the
+  annotated export is rendered in-page. No upload, no cloud, no ffmpeg
   service — the only output is the file you choose to download.
 - **All Excalidraw fonts are bundled** (`npm run build` copies them from the installed package into
   `public/fonts`, ~12 MB). Nothing is fetched from `esm.sh` or any other CDN at runtime.
@@ -393,15 +411,17 @@ SnapDraw is designed so that no byte of your screen content can leave the machin
 
 ## Permissions
 
-Only five permissions are requested, and there are **no host permissions**:
+Only four permissions are requested, and there are **no host permissions**:
 
 | Permission | Why it is needed |
 | --- | --- |
 | `activeTab` | Grants one-time access to the tab the user just clicked on. `chrome.tabs.captureVisibleTab()` requires it (or broad host permissions we deliberately avoid), and it lets the extension read the tab's URL/title to produce a friendly name and reject restricted pages. Granted by the toolbar popup click and by the keyboard command. |
 | `tabCapture` | Records the current tab's video (and its audio when available) with `chrome.tabCapture.getMediaStreamId()` + `getUserMedia`. Only usable after the user invokes the extension (toolbar click), which is exactly how recording starts. |
-| `desktopCapture` | Lets **Whole screen** ask Chrome's own picker for a screen/window stream (`chrome.desktopCapture.chooseDesktopMedia`). The stream is recorded locally; nothing is uploaded. |
-| `offscreen` | Keeps the `MediaRecorder` alive in a hidden offscreen document after the popup closes, so recording runs in the background without opening a recorder tab. |
+| `offscreen` | Keeps the tab recording's `MediaRecorder` alive in a hidden offscreen document after the popup closes, so recording runs in the background without opening a recorder tab. |
 | `clipboardWrite` | Allows the editors to put an annotated PNG/frame on the clipboard. |
+
+**Whole screen** uses `getDisplayMedia()` from the visible recorder window, so it needs no extra
+permission beyond the user's picker choice.
 
 Persistence uses **IndexedDB**, so no `storage` permission is needed. Tabs are opened with
 `chrome.tabs.create` (no permission required) and the editors do not need `scripting`.
@@ -424,9 +444,8 @@ pages.
   dimension-decoding failure path.
 - `tests/messaging.test.ts` – message contracts, URL/session/recorder parsing, `requestCapture` error
   normalisation, service-worker listener behaviour (including synchronous throws).
-- `tests/manifest.test.ts` – MV3 shape, exact permission set (including `tabCapture`/`desktopCapture`/
-  `offscreen`), no host permissions/content scripts, local-only CSP, icon files, command binding,
-  offscreen/video entries.
+- `tests/manifest.test.ts` – MV3 shape, exact permission set (including `tabCapture`/`offscreen`),
+  no host permissions/content scripts, local-only CSP, icon files, command binding, recorder pages.
 - `tests/screenshot.service.test.ts` – URL classification (22 cases), naming, Chrome error mapping,
   every capture failure path plus the full success path against mocked `chrome` + fake-indexeddb.
 - `tests/export.service.test.ts` – filename sanitising, pre-flight size guards, error mapping,
@@ -444,7 +463,7 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (112 checks, all driven through real input events and real downloads):
+It verifies (113 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
 - popup renders the capture action, record-video action, shortcut hint, local-only copy, version,
@@ -471,8 +490,8 @@ It verifies (112 checks, all driven through real input events and real downloads
 - the capture view's **recent-captures preview** shows the saved thumbnails (verified to contain the
   actual page content, not a blank block), links to the full history and opens the newest capture
   when clicked; a legacy capture without a thumbnail gets one generated and persisted automatically;
-- the popup exposes **This tab** and **Whole screen** recording actions; `tabCapture` and
-  `desktopCapture` are available;
+- the popup exposes **This tab** and **Whole screen** recording actions, `tabCapture` is available,
+  and **Whole screen** opens the screen-share window with its Start/Stop controls (screenshot saved);
 - the popup capture button carries its own explanation inside, and the two split recording buttons
   sit on one line with distinct recording colours;
 - the **video editor** loads a real WebM, mounts the transparent Excalidraw overlay over the video,
@@ -522,11 +541,27 @@ recorded. If **Whole screen** is used, Chrome's own picker must be answered — 
 error without starting anything. The extension console (`chrome://extensions` → SnapDraw →
 *Service worker* / *Inspect views*) logs the underlying reason.
 
+**"SnapDraw has crashed" right after starting a recording.**
+That was a bug in earlier builds: tab audio was requested with a bare `audio: true`, which makes
+Chrome try to show a microphone-style permission prompt in the offscreen recorder (it cannot), and the
+renderer crashed. SnapDraw now requests tab audio with explicit `chromeMediaSource` constraints; reload
+the extension from `chrome://extensions` with the latest `dist/` and it stops happening.
+
+**"Chrome couldn't start the screen recording."**
+**Whole screen** uses Chrome's screen/window picker from the recorder window. Click **Start sharing**,
+answer the picker (try a single window if the entire screen fails), and keep the recorder window open
+until you press **Stop and open editor**. Remote-desktop/VM sessions and some managed Chrome profiles
+block screen sharing entirely; **This tab** still works there. The recorder window shows the reason in
+its error area.
+
 **The red REC badge stays on — how do I stop?**
-Click the SnapDraw icon: the popup shows the live timer with **Stop and open editor** and **Cancel
-recording**. Recording continues while the popup is closed, and the badge clears when the recording is
-saved or cancelled. Closing the whole browser discards an in-progress recording (nothing is uploaded
-or left running).
+- **This tab:** click the SnapDraw icon; the popup shows the live timer with **Stop and open editor**
+  and **Cancel recording**.
+- **Whole screen:** use **Stop and open editor** / **Cancel** in the screen recorder window.
+
+Recording continues while the popup is closed, and the badge clears when the recording is saved or
+cancelled. Closing the whole browser discards an in-progress recording (nothing is uploaded or left
+running).
 
 **The annotated video export takes as long as the recording.**
 That's expected: the editor replays the clip and re-records the canvas in real time (this keeps the
@@ -541,7 +576,8 @@ The original recording is always downloadable un-annotated from **More → Downl
 **No audio in the recording.**
 **This tab** captures the tab's audio, not the microphone or system audio. A muted tab, or a page that
 wasn't playing sound, records silently; audio capture falls back to video-only when the tab has no
-audio track. **Whole screen** is intentionally video-only.
+audio track. **Whole screen** requests system audio when Chrome offers it; many displays/windows share
+silently, in which case the recording has no audio track.
 
 **Copy Image says the clipboard is unavailable.**
 Clipboard writes need a focused window and a user gesture, and some managed Chrome profiles block
@@ -605,9 +641,10 @@ be intentional and documented.
 - [Excalidraw](https://github.com/excalidraw/excalidraw) (`@excalidraw/excalidraw@0.18.1`, MIT) – the
   entire drawing engine, UI and export pipeline. SnapDraw embeds the package; it does not fork the app.
 - React 18 + TypeScript 5 (strict) + Vite 8 (Rolldown) + Manifest V3.
-- Video: `chrome.tabCapture` + `MediaRecorder` (WebM/VP8-9 + Opus) for recording, and
-  `canvas.captureStream` + `MediaRecorder` + `AudioContext` / `MediaStreamAudioDestinationNode` for the
-  annotated export — no ffmpeg or server-side processing.
+- Video: `chrome.tabCapture` + `MediaRecorder` (WebM/VP8-9 + Opus) for tab recording,
+  `getDisplayMedia` + `MediaRecorder` for whole-screen recording, and `canvas.captureStream` +
+  `MediaRecorder` + `AudioContext` / `MediaStreamAudioDestinationNode` for the annotated export — no
+  ffmpeg or server-side processing.
 - Vitest + fake-indexeddb for tests; a dependency-free PNG decoder in the E2E harness.
 - Logo and icons are drawn in code (`src/components/Logo.tsx`, `scripts/generate-icons.mjs`) and
   generated as real PNGs — no binary design assets from third parties.

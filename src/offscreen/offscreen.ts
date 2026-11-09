@@ -85,36 +85,36 @@ function stopTracks(stream: MediaStream): void {
   }
 }
 
-/** Constraints for tabCapture / desktopCapture stream ids. */
+/** Tab-capture constraints for the offscreen recorder (tab source only). */
 async function openCaptureStream(
   streamId: string,
   source: RecordingSource,
 ): Promise<MediaStream> {
-  const video = (
-    source === "desktop"
-      ? {
-          mandatory: {
-            chromeMediaSource: "desktop",
-            chromeMediaSourceId: streamId,
-            maxWidth: 4096,
-            maxHeight: 4096,
-          },
-        }
-      : {
-          mandatory: {
-            chromeMediaSource: "tab",
-            chromeMediaSourceId: streamId,
-          },
-        }
-  ) as unknown as MediaTrackConstraints;
-
-  if (source === "desktop") {
-    // Desktop audio capture is inconsistent across platforms; keep it video-only.
-    return navigator.mediaDevices.getUserMedia({ audio: false, video });
+  if (source !== "tab") {
+    throw new Error("Screen recording uses the visible screen-share window.");
   }
 
+  const video = {
+    mandatory: {
+      chromeMediaSource: "tab",
+      chromeMediaSourceId: streamId,
+    },
+  } as unknown as MediaTrackConstraints;
+
+  // Important: request tab audio with explicit `chromeMediaSource` constraints.
+  // A bare `audio: true` makes Chrome try to show a microphone-style permission
+  // prompt that an offscreen document cannot display, which crashes the
+  // extension renderer ("SnapDraw has crashed"). Explicit constraints capture
+  // the tab's audio without any prompt.
+  const audio = {
+    mandatory: {
+      chromeMediaSource: "tab",
+      chromeMediaSourceId: streamId,
+    },
+  } as unknown as MediaTrackConstraints;
+
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video });
+    return await navigator.mediaDevices.getUserMedia({ audio, video });
   } catch {
     // Tabs without an audio track record video-only.
     return navigator.mediaDevices.getUserMedia({ audio: false, video });
