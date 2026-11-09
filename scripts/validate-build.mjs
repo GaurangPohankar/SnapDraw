@@ -95,7 +95,7 @@ async function main() {
 
   for (const [label, relativePath] of [
     ["video editor", ["src", "video", "video.html"]],
-    ["recorder", ["src", "recorder", "recorder.html"]],
+    ["offscreen recorder", ["src", "offscreen", "offscreen.html"]],
   ]) {
     if (!(await exists(path.join(dist, ...relativePath)))) {
       fail(`dist/${relativePath.join("/")} is missing (${label} page).`);
@@ -118,7 +118,13 @@ async function main() {
 
   // --- Permissions --------------------------------------------------------
   const permissions = manifest.permissions ?? [];
-  const allowed = new Set(["activeTab", "clipboardWrite", "tabCapture"]);
+  const allowed = new Set([
+    "activeTab",
+    "clipboardWrite",
+    "desktopCapture",
+    "offscreen",
+    "tabCapture",
+  ]);
   for (const permission of permissions) {
     if (!allowed.has(permission)) {
       fail(`Unexpected permission "${permission}" – keep the permission set minimal.`);
@@ -130,7 +136,13 @@ async function main() {
   if (manifest.content_scripts) {
     fail("content_scripts are not needed for SnapDraw v1.");
   }
-  for (const required of ["activeTab", "clipboardWrite", "tabCapture"]) {
+  for (const required of [
+    "activeTab",
+    "clipboardWrite",
+    "desktopCapture",
+    "offscreen",
+    "tabCapture",
+  ]) {
     if (!permissions.includes(required)) {
       fail(`Missing permission "${required}".`);
     }
@@ -219,3 +231,4 @@ async function main() {
 }
 
 await main();
+

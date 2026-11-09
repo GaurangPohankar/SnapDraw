@@ -2,22 +2,23 @@ import type {
   CaptureErrorCode,
   CaptureResponse,
   CaptureSource,
+  RecordingSource,
+  RecordingStatusResponse,
   RuntimeRequest,
   SnapDrawErrorPayload,
+  StartRecordingResponse,
+  StopRecordingResponse,
 } from "../types";
 
 /** Bundled extension page paths (stable output paths of the Vite build). */
 export const POPUP_PAGE_PATH = "src/popup/popup.html";
 export const EDITOR_PAGE_PATH = "src/editor/editor.html";
-export const RECORDER_PAGE_PATH = "src/recorder/recorder.html";
 export const VIDEO_EDITOR_PAGE_PATH = "src/video/video.html";
+/** Hidden document that keeps the recording alive while the popup is closed. */
+export const OFFSCREEN_PAGE_PATH = "src/offscreen/offscreen.html";
 
 /** Query parameter used to hand a screenshot session id to the editor tab. */
 export const SESSION_QUERY_PARAM = "session";
-
-/** Query parameters used to hand a tab-capture stream to the recorder page. */
-export const RECORDING_STREAM_PARAM = "stream";
-export const RECORDING_TAB_PARAM = "tab";
 
 /** Query parameter used to surface an error state in the editor tab. */
 export const ERROR_QUERY_PARAM = "error";
@@ -89,43 +90,6 @@ export function buildVideoEditorUrl(sessionId: string): string {
   const url = new URL(extensionPageUrl(VIDEO_EDITOR_PAGE_PATH));
   url.searchParams.set(SESSION_QUERY_PARAM, sessionId);
   return url.toString();
-}
-
-/**
- * Builds the recorder page URL.
- *
- * `streamId` is the short-lived tab-capture stream id produced by
- * `chrome.tabCapture.getMediaStreamId()` after a user gesture; the recorder page
- * consumes it once with `getUserMedia()`. It is scoped to this extension page.
- */
-export function buildRecorderUrl(streamId: string, tabId?: number): string {
-  const url = new URL(extensionPageUrl(RECORDER_PAGE_PATH));
-  url.searchParams.set(RECORDING_STREAM_PARAM, streamId);
-  if (tabId !== undefined) {
-    url.searchParams.set(RECORDING_TAB_PARAM, String(tabId));
-  }
-  return url.toString();
-}
-
-export interface RecorderParams {
-  streamId: string | null;
-  tabId: number | null;
-}
-
-/** Reads the recorder page parameters. */
-export function readRecorderParams(search: string = window.location.search): RecorderParams {
-  try {
-    const params = new URLSearchParams(search);
-    const streamId = params.get(RECORDING_STREAM_PARAM);
-    const tabIdRaw = params.get(RECORDING_TAB_PARAM);
-    const tabId = tabIdRaw !== null && /^\d+$/.test(tabIdRaw) ? Number(tabIdRaw) : null;
-    return {
-      streamId: streamId && streamId.trim().length > 0 ? streamId.trim() : null,
-      tabId,
-    };
-  } catch {
-    return { streamId: null, tabId: null };
-  }
 }
 
 /** Reads the session id from an editor page URL. */
@@ -249,22 +213,80 @@ export function onRuntimeMessage(
       return undefined;
     }
 
-    // Start from a resolved promise so a synchronous throw inside `handler` is
-    // routed to the typed error response instead of escaping the listener.
-    Promise.resolve()
-      .then(() => handler(message as RuntimeRequest))
-      .then((result) => sendResponse(result))
-      .catch((error: unknown) => {
-        sendResponse({
-          ok: false,
-          error: errorPayload(
-            "UNKNOWN",
-            error instanceof Error ? error.message : "Capture failed unexpectedly.",
-          ),
-        });
-      });
-
-    // Keep the message channel open for the async response.
+    respondSafely(handler, message as RuntimeRequest, sendResponse);
     return true;
   });
+}
+
+function respondSafely(
+  handler: (message: RuntimeRequest) => Promise<unknown> | undefined,
+  message: RuntimeRequest,
+  sendResponse: (response: unknown) => void,
+): void {
+  // Start from a resolved promise so a synchronous throw inside `handler` is
+  // routed to the typed error response instead of escaping the listener.
+  Promise.resolve()
+    .then(() => handler(message))
+    .then((result) => sendResponse(result))
+    .catch((error: unknown) => {
+      sendResponse({
+        ok: false,
+        error: errorPayload(
+          "UNKNOWN",
+          error instanceof Error ? error.message : "Capture failed unexpectedly.",
+        ),
+      });
+    });
+}
+
+/** Normalises a thrown error into the typed response shape used by the UI. */
+function toFailurePayload(error: unknown): SnapDrawErrorPayload {
+  if (error instanceof SnapDrawError) {
+    return errorPayload(error.code, error.message, error.hint);
+  }
+  return errorPayload(
+    "UNKNOWN",
+    error instanceof Error ? error.message : "Something unexpected happened.",
+  );
+}
+
+/** Asks the service worker to start a recording. Never throws. */
+export async function startRecording(
+  streamId: string,
+  source: RecordingSource,
+): Promise<StartRecordingResponse> {
+  try {
+    return await sendRuntimeMessage<StartRecordingResponse>({
+      type: "RECORDING_START",
+      streamId,
+      source,
+    });
+  } catch (error) {
+    return { ok: false, error: toFailurePayload(error) };
+  }
+}
+
+/** Asks the service worker to stop the active recording. Never throws. */
+export async function stopRecording(
+  discard = false,
+): Promise<StopRecordingResponse> {
+  try {
+    return await sendRuntimeMessage<StopRecordingResponse>({
+      type: "RECORDING_STOP",
+      discard,
+    });
+  } catch (error) {
+    return { ok: false, error: toFailurePayload(error) };
+  }
+}
+
+/** Reads the current recording state. Never throws. */
+export async function getRecordingStatus(): Promise<RecordingStatusResponse> {
+  try {
+    return await sendRuntimeMessage<RecordingStatusResponse>({
+      type: "RECORDING_STATUS",
+    });
+  } catch (error) {
+    return { ok: false, error: toFailurePayload(error) };
+  }
 }

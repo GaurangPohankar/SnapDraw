@@ -1,14 +1,15 @@
 /**
- * Tab video recording helpers.
+ * Recording helpers.
  *
- * The popup obtains a short-lived tab-capture stream id (needs the user gesture
- * from the toolbar click); the recorder page consumes it with `getUserMedia`,
- * records to WebM and saves the result next to screenshots in IndexedDB.
+ * The popup obtains a short-lived capture stream id (tabCapture for the current
+ * tab, desktopCapture for the whole screen) while it owns the user gesture; the
+ * service worker forwards it to the offscreen document, which records to WebM
+ * and saves the result next to screenshots in IndexedDB.
  */
 import type { ScreenshotRecord } from "../types";
 import { SnapDrawError } from "../utils/messaging";
 import { putScreenshot, trimScreenshots } from "./storage.service";
-import { createVideoThumbnail, pickVideoMimeType } from "./video.service";
+import { createVideoThumbnail } from "./video.service";
 
 function pad(value: number): string {
   return String(value).padStart(2, "0");
@@ -125,6 +126,58 @@ async function thumbnailFromRecording(blob: Blob): Promise<Blob | undefined> {
 }
 
 /**
+ * Asks Chrome to pick a screen/window and returns a desktop-capture stream id.
+ *
+ * Must be called from an extension page in response to a user gesture (the
+ * popup's "Whole screen" button); Chrome shows its own picker, and returning an
+ * empty id means the user cancelled.
+ */
+export async function requestDesktopStreamId(): Promise<string> {
+  const desktopCapture = chrome.desktopCapture as unknown as
+    | {
+        chooseDesktopMedia?: (
+          sources: string[],
+          callback: (streamId?: string) => void,
+        ) => number;
+      }
+    | undefined;
+
+  if (typeof desktopCapture?.chooseDesktopMedia !== "function") {
+    throw new SnapDrawError(
+      "CAPTURE_FAILED",
+      "Screen recording is not available in this browser.",
+      "Update Chrome to a recent version and try again.",
+    );
+  }
+
+  return new Promise<string>((resolve, reject) => {
+    try {
+      desktopCapture.chooseDesktopMedia!(["screen", "window"], (streamId) => {
+        if (!streamId) {
+          reject(
+            new SnapDrawError(
+              "CAPTURE_FAILED",
+              "Screen recording was cancelled.",
+              "Pick a screen or window to record, then try again.",
+            ),
+          );
+          return;
+        }
+        resolve(streamId);
+      });
+    } catch (error) {
+      reject(
+        new SnapDrawError(
+          "CAPTURE_FAILED",
+          "SnapDraw couldn't ask Chrome for the screen.",
+          error instanceof Error ? error.message : "Please try again.",
+        ),
+      );
+    }
+  });
+}
+
+/**
  * Stores a finished recording (with thumbnail/duration) and returns its session
  * id so the caller can open the video editor.
  */
@@ -153,9 +206,4 @@ export async function saveRecording(
   void trimScreenshots();
 
   return { id: recordId, name };
-}
-
-/** MediaRecorder mime type for tab recordings, or undefined if unsupported. */
-export function recorderMimeType(): string | undefined {
-  return pickVideoMimeType();
 }

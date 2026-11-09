@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light dark" />
+    <title>SnapDraw Recorder</title>
+  </head>
+  <body>
+    <!--
+      Hidden offscreen document. It owns the MediaRecorder so a recording keeps
+      running after the popup closes; the popup starts/stops it through the
+      service worker. No UI is rendered here.
+    -->
+    <script type="module" src="./offscreen.ts"></script>
+  </body>
+</html>

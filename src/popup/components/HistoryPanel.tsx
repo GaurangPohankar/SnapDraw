@@ -11,7 +11,7 @@ import {
 import { ensureThumbnailFor } from "../../services/thumbnail.service";
 import { formatDuration } from "../../services/video.service";
 import { openScreenshotInEditor } from "../openScreenshot";
-import { ChevronLeftIcon, ImageIcon, TrashIcon } from "./icons";
+import { ChevronLeftIcon, ImageIcon, TrashIcon, VideoIcon } from "./icons";
 
 interface HistoryRow {
   entry: ScreenshotHistoryEntry;
@@ -264,9 +264,20 @@ export function HistoryPanel({ onBack, onChanged, showToast }: HistoryPanelProps
                   ) : (
                     <ImageIcon size={17} />
                   )}
-                  {row.entry.kind === "video" ? (
-                    <span className="sd-history__play" aria-hidden="true" />
-                  ) : null}
+                  <span
+                    className={
+                      row.entry.kind === "video"
+                        ? "sd-history__type sd-history__type--video"
+                        : "sd-history__type"
+                    }
+                    aria-hidden="true"
+                  >
+                    {row.entry.kind === "video" ? (
+                      <VideoIcon size={10} />
+                    ) : (
+                      <ImageIcon size={10} />
+                    )}
+                  </span>
                 </span>
                 <span className="sd-history__info">
                   <span className="sd-history__name">{row.entry.name}</span>

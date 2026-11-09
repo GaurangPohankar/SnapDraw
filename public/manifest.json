@@ -35,6 +35,8 @@
   "permissions": [
     "activeTab",
     "clipboardWrite",
+    "desktopCapture",
+    "offscreen",
     "tabCapture"
   ],
   "content_security_policy": {

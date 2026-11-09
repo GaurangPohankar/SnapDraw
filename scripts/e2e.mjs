@@ -1142,32 +1142,51 @@ async function main() {
         pages.popup.sessionId,
         `(() => {
           const capture = document.querySelector("button.sd-popup__capture");
-          const record = document.querySelector('button[aria-label="Record video"]');
+          const segments = Array.from(
+            document.querySelectorAll(".sd-popup__record-segment"),
+          );
+          const rects = segments.map((segment) => {
+            const rect = segment.getBoundingClientRect();
+            return {
+              top: Math.round(rect.top),
+              width: Math.round(rect.width),
+              label: segment.getAttribute("aria-label"),
+            };
+          });
           return {
             captureClass: capture?.className ?? "",
-            recordClass: record?.className ?? "",
-            captureHeight: Math.round(capture?.getBoundingClientRect().height ?? 0),
-            recordHeight: Math.round(record?.getBoundingClientRect().height ?? 0),
+            captureText: (capture?.textContent ?? "").replace(/\\s+/g, " ").trim(),
+            segmentClasses: segments.map((segment) => segment.className),
+            segmentLabels: rects.map((rect) => rect.label),
+            segmentTops: rects.map((rect) => rect.top),
+            segmentWidths: rects.map((rect) => rect.width),
           };
         })()`,
       );
       check(
-        "capture and record actions share the same size",
-        actionStyles.captureClass.includes("sd-button--lg") &&
-          actionStyles.recordClass.includes("sd-button--lg") &&
-          actionStyles.captureHeight > 0 &&
-          Math.abs(actionStyles.captureHeight - actionStyles.recordHeight) <= 1,
-        JSON.stringify(actionStyles),
+        "capture action explains itself inside the button",
+        /Capture Screenshot/.test(actionStyles.captureText) &&
+          /Visible area of this tab/.test(actionStyles.captureText),
+        actionStyles.captureText,
       );
       check(
         "capture and record actions use distinct colours",
         actionStyles.captureClass.includes("sd-button--primary") &&
-          actionStyles.recordClass.includes("sd-button--record"),
+          actionStyles.segmentClasses.every((className) =>
+            className.includes("sd-button--record"),
+          ),
+        JSON.stringify(actionStyles.segmentClasses),
+      );
+      check(
+        "two split recording buttons share one line",
+        actionStyles.segmentLabels.join(",") === "Record this tab,Record whole screen" &&
+          actionStyles.segmentTops.every((top) => top === actionStyles.segmentTops[0]) &&
+          actionStyles.segmentWidths.every((width) => width > 60),
         JSON.stringify(actionStyles),
       );
       pages.popupShot = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
         width: 340,
-        height: 560,
+        height: 620,
         activate: false,
       });
       await waitForSelector(browser, pages.popupShot.sessionId, "button.sd-popup__capture");
@@ -1769,6 +1788,8 @@ async function main() {
               return Boolean(image && image.complete && image.naturalWidth > 0);
             }),
             viewAll: document.querySelector(".sd-recent__all")?.textContent?.trim() ?? "",
+            typeIcons: document.querySelectorAll(".sd-recent__type").length,
+            videoIcons: document.querySelectorAll(".sd-recent__type--video").length,
           };
         })()`,
       );
@@ -1777,6 +1798,11 @@ async function main() {
         "recent preview thumbnails render from local storage",
         preview.loaded.every(Boolean),
         JSON.stringify(preview.loaded),
+      );
+      check(
+        "recent previews show an image type icon for screenshots",
+        preview.typeIcons === 2 && preview.videoIcons === 0,
+        JSON.stringify({ typeIcons: preview.typeIcons, videoIcons: preview.videoIcons }),
       );
 
       // Decode the first thumbnail to prove it contains the actual screenshot
@@ -1887,6 +1913,8 @@ async function main() {
           const items = Array.from(document.querySelectorAll(".sd-history__item"));
           return {
             count: items.length,
+            typeIcons: document.querySelectorAll(".sd-history__type").length,
+            videoIcons: document.querySelectorAll(".sd-history__type--video").length,
             rows: items.map((item) => {
               const image = item.querySelector(".sd-history__thumb img");
               return {
@@ -1900,6 +1928,11 @@ async function main() {
         })()`,
       );
       check("history lists both captures", history.count === 2, `count=${history.count}`);
+      check(
+        "history shows an image type icon for screenshots",
+        history.typeIcons === 2 && history.videoIcons === 0,
+        JSON.stringify({ typeIcons: history.typeIcons, videoIcons: history.videoIcons }),
+      );
       check(
         "history is ordered newest first",
         (history.rows[0]?.meta ?? "").includes("900 × 600") &&
@@ -2117,30 +2150,42 @@ async function main() {
         width: 340,
         height: 640,
       });
-      await waitForSelector(browser, popup.sessionId, 'button[aria-label="Record video"]');
+      await waitForSelector(browser, popup.sessionId, 'button[aria-label="Record this tab"]');
+      await waitForSelector(browser, popup.sessionId, 'button[aria-label="Record whole screen"]');
       const recordApi = await browser.evaluate(
         popup.sessionId,
-        `({ tabCapture: typeof chrome.tabCapture?.getMediaStreamId === "function" })`,
+        `({
+          tabCapture: typeof chrome.tabCapture?.getMediaStreamId === "function",
+          desktopCapture: typeof chrome.desktopCapture?.chooseDesktopMedia === "function",
+        })`,
       );
-      check("popup offers video recording", true);
+      check("popup offers tab and whole-screen recording", true);
       check("tabCapture API is available to the extension", recordApi.tabCapture === true);
+      check(
+        "desktopCapture API is available to the extension",
+        recordApi.desktopCapture === true,
+      );
 
-      // The recorder reports a friendly error when it has no capture stream.
-      const recorder = await openExtensionPage(browser, extensionId, "src/recorder/recorder.html", {
-        width: 900,
-        height: 600,
-      });
-      await waitForSelector(browser, recorder.sessionId, ".sd-recorder__card");
-      const recorderText = await browser.evaluate(
-        recorder.sessionId,
-        `document.querySelector(".sd-recorder")?.innerText ?? ""`,
+      // Recording is orchestrated by the service worker + offscreen document.
+      const idleRecording = await browser.evaluate(
+        popup.sessionId,
+        `chrome.runtime.sendMessage({ type: "RECORDING_STATUS" })`,
       );
       check(
-        "recorder explains an invalid capture link",
-        /invalid|capture stream|couldn't/i.test(recorderText),
-        recorderText.replace(/\s+/g, " ").slice(0, 120),
+        "service worker reports an idle recording state",
+        idleRecording?.ok === true && idleRecording?.status?.recording === false,
+        JSON.stringify(idleRecording),
       );
-      await browser.send("Target.closeTarget", { targetId: recorder.targetId });
+
+      // Note: actually starting a tab/desktop recording cannot be exercised in
+      // headless Chrome (no capture stream support; the media request stalls the
+      // extension). The recording handover is a documented manual test; the
+      // editor/export/history pipeline below is verified with a real WebM.
+      check(
+        "service worker reports an idle recording state",
+        idleRecording?.ok === true && idleRecording?.status?.recording === false,
+        JSON.stringify(idleRecording),
+      );
 
       // Seed a real WebM recording so the editor can be tested deterministically.
       const seeded = await browser.evaluate(popup.sessionId, SEED_VIDEO_EXPRESSION);
@@ -2315,13 +2360,27 @@ async function main() {
         popup2.sessionId,
         `({
           thumbs: document.querySelectorAll(".sd-recent__thumb").length,
-          playBadge: Boolean(document.querySelector(".sd-recent__play")),
+          playBadge: Boolean(document.querySelector(".sd-recent__type--video")),
         })`,
       );
       check(
-        "recent preview marks the recording with a play badge",
+        "recent preview marks the recording with a video icon",
         videoPreview.thumbs >= 1 && videoPreview.playBadge === true,
         JSON.stringify(videoPreview),
+      );
+
+      const recentVideoShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        popup2.sessionId,
+      );
+      await writeFile(
+        path.join(screenshotsDir, "popup-recent-video.png"),
+        Buffer.from(recentVideoShot.data, "base64"),
+      );
+      check(
+        "video preview screenshot saved",
+        existsSync(path.join(screenshotsDir, "popup-recent-video.png")),
       );
 
       await browser.evaluate(
@@ -2333,7 +2392,7 @@ async function main() {
         popup2.sessionId,
         `(() => {
           const row = Array.from(document.querySelectorAll(".sd-history__item"))
-            .find((element) => element.querySelector(".sd-history__play"));
+            .find((element) => element.querySelector(".sd-history__type--video"));
           return row
             ? {
                 meta: row.querySelector(".sd-history__meta")?.textContent ?? "",
@@ -2356,7 +2415,7 @@ async function main() {
         popup2.sessionId,
         `(() => {
           const row = Array.from(document.querySelectorAll(".sd-history__item"))
-            .find((element) => element.querySelector(".sd-history__play"));
+            .find((element) => element.querySelector(".sd-history__type--video"));
           row?.querySelector(".sd-history__open")?.click();
           return Boolean(row);
         })()`,

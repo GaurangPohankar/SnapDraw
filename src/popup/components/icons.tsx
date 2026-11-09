@@ -63,6 +63,29 @@ export function VideoIcon(props: IconProps) {
   );
 }
 
+/** Current-tab mark for the "record this tab" segment. */
+export function TabIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="3" y="4.6" width="18" height="14.8" rx="2.3" />
+      <path d="M3 8.9h18" />
+      <circle cx="6.3" cy="6.8" r="0.9" fill="currentColor" stroke="none" />
+      <circle cx="9.3" cy="6.8" r="0.9" fill="currentColor" stroke="none" />
+    </IconBase>
+  );
+}
+
+/** Monitor mark for the "record whole screen" segment. */
+export function ScreenIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="2.9" y="4.4" width="18.2" height="12.4" rx="2.1" />
+      <path d="M8.4 20h7.2" />
+      <path d="M12 16.8V20" />
+    </IconBase>
+  );
+}
+
 /** Check mark shown once the editor tab has opened. */
 export function CheckIcon(props: IconProps) {
   return (

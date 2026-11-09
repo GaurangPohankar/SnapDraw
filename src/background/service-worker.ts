@@ -13,11 +13,23 @@
  * in the capture service).
  */
 import type {
+  CaptureRequest,
   CaptureResponse,
   CaptureSource,
-  RuntimeRequest,
+  OffscreenCommand,
+  OffscreenStartResult,
+  OffscreenStatusResult,
+  OffscreenStopResult,
+  RecordingSource,
+  RecordingStatus,
+  RecordingStatusResponse,
   SnapDrawErrorPayload,
+  StartRecordingRequest,
+  StartRecordingResponse,
+  StopRecordingRequest,
+  StopRecordingResponse,
 } from "../types";
+import { OFFSCREEN_TARGET } from "../types";
 import {
   captureVisibleViewport,
   purgeExpiredSessions,
@@ -25,6 +37,9 @@ import {
 } from "../services/screenshot.service";
 import {
   buildEditorErrorUrl,
+  buildVideoEditorUrl,
+  errorPayload,
+  OFFSCREEN_PAGE_PATH,
   onRuntimeMessage,
 } from "../utils/messaging";
 
@@ -106,7 +121,7 @@ async function showErrorFeedback(error: SnapDrawErrorPayload): Promise<void> {
   }, ERROR_FEEDBACK_MS);
 }
 
-function captureSourceOf(message: RuntimeRequest): CaptureSource {
+function captureSourceOf(message: CaptureRequest): CaptureSource {
   return message.source === "command" ? "command" : "popup";
 }
 
@@ -127,7 +142,7 @@ async function runCapture(source: CaptureSource): Promise<CaptureResponse> {
 
 onRuntimeMessage(async (message) => {
   // Failures come back typed, so the popup always has a friendly message.
-  return runCapture(captureSourceOf(message));
+  return runCapture(captureSourceOf(message as CaptureRequest));
 });
 
 // ---------------------------------------------------------------------------
@@ -188,7 +203,17 @@ chrome.commands.onCommand.addListener((command) => {
 /** Restores the normal toolbar state and removes stale sessions. */
 async function initialise(): Promise<void> {
   cancelFeedbackReset();
-  await resetActionFeedback();
+
+  // Keep the REC badge when the worker restarts mid-recording; otherwise clear
+  // any stale recorder document/badge from a previous browser session.
+  const status = await readRecordingStatus();
+  if (status.recording) {
+    await setRecordingBadge(true, status.source ?? undefined);
+  } else {
+    await closeOffscreenSafely();
+    await resetActionFeedback();
+  }
+
   await purgeExpiredSessions();
 }
 
@@ -200,4 +225,309 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onStartup.addListener(() => {
   console.log("[SnapDraw] background ready (browser start)");
   void initialise();
+});
+
+// ---------------------------------------------------------------------------
+// Video recording (offscreen MediaRecorder)
+// ---------------------------------------------------------------------------
+
+const RECORDING_BADGE_TEXT = "REC";
+const RECORDING_BADGE_COLOR = "#ef4444";
+
+/** Offscreen documents expose a small, partially-typed Chrome surface. */
+interface OffscreenApi {
+  hasDocument?: () => Promise<boolean>;
+  createDocument: (options: {
+    url: string;
+    reasons: string[];
+    justification: string;
+  }) => Promise<void>;
+  closeDocument: () => Promise<void>;
+}
+
+function offscreenApi(): OffscreenApi {
+  const api = chrome.offscreen as unknown as OffscreenApi | undefined;
+  if (!api?.createDocument) {
+    throw new Error("The offscreen API is unavailable in this browser.");
+  }
+  return api;
+}
+
+async function hasOffscreenDocument(): Promise<boolean> {
+  try {
+    const api = offscreenApi();
+    if (typeof api.hasDocument !== "function") {
+      return false;
+    }
+    return await api.hasDocument();
+  } catch {
+    return false;
+  }
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  const api = offscreenApi();
+  if (await hasOffscreenDocument()) {
+    return;
+  }
+
+  try {
+    await api.createDocument({
+      url: chrome.runtime.getURL(OFFSCREEN_PAGE_PATH),
+      reasons: ["USER_MEDIA"],
+      justification:
+        "Keeps the MediaRecorder alive while the SnapDraw popup is closed.",
+    });
+  } catch (error) {
+    // `createDocument` rejects if a document already exists (race with another
+    // event) – only surface the error when no document exists afterwards.
+    if (!(await hasOffscreenDocument())) {
+      throw error;
+    }
+  }
+}
+
+async function closeOffscreenDocument(): Promise<void> {
+  try {
+    const api = offscreenApi();
+    if (await hasOffscreenDocument()) {
+      await api.closeDocument();
+    }
+  } catch (error) {
+    console.debug(
+      `[SnapDraw] could not close the offscreen recorder: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+/** Rejects a promise that never settles so UI messages always get an answer. */
+function withPromiseTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error: unknown) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+async function closeOffscreenSafely(): Promise<void> {
+  await withPromiseTimeout(closeOffscreenDocument(), 2_000, "close timeout").catch(
+    () => undefined,
+  );
+}
+
+async function sendToOffscreen<T>(command: OffscreenCommand): Promise<T> {
+  // The recorder should answer immediately; a missing response means the
+  // document failed to load or a media request is stuck, so fail cleanly.
+  return withPromiseTimeout(
+    chrome.runtime.sendMessage(command) as Promise<T>,
+    8_000,
+    "The recorder didn't respond. Please try again.",
+  );
+}
+
+async function setRecordingBadge(
+  recording: boolean,
+  source?: RecordingSource,
+): Promise<void> {
+  try {
+    await chrome.action.setBadgeBackgroundColor({ color: RECORDING_BADGE_COLOR });
+    await chrome.action.setBadgeText({ text: recording ? RECORDING_BADGE_TEXT : "" });
+    await chrome.action.setTitle({
+      title: recording
+        ? `SnapDraw is recording ${
+            source === "desktop" ? "your screen" : "this tab"
+          } – click the icon to stop`
+        : defaultActionTitle(),
+    });
+  } catch (error) {
+    logActionError(recording ? "set recording badge" : "clear recording badge", error);
+  }
+}
+
+async function readRecordingStatus(): Promise<RecordingStatus> {
+  if (!(await hasOffscreenDocument())) {
+    return { recording: false, source: null, startedAt: null };
+  }
+
+  try {
+    const result = await sendToOffscreen<OffscreenStatusResult>({
+      target: OFFSCREEN_TARGET,
+      type: "offscreen:status",
+    });
+    if (result?.ok) {
+      return {
+        recording: result.recording,
+        source: result.source,
+        startedAt: result.startedAt,
+      };
+    }
+  } catch {
+    // Treat an unreachable recorder as idle; the popup will offer a fresh start.
+  }
+
+  return { recording: false, source: null, startedAt: null };
+}
+
+async function handleStartRecording(
+  request: StartRecordingRequest,
+): Promise<StartRecordingResponse> {
+  try {
+    await withPromiseTimeout(
+      ensureOffscreenDocument(),
+      5_000,
+      "The recorder could not start in this browser.",
+    );
+    const result = await sendToOffscreen<OffscreenStartResult>({
+      target: OFFSCREEN_TARGET,
+      type: "offscreen:start",
+      streamId: request.streamId,
+      source: request.source,
+    });
+
+    if (!result?.ok) {
+      await setRecordingBadge(false);
+      await closeOffscreenSafely();
+      return {
+        ok: false,
+        error: errorPayload(
+          "CAPTURE_FAILED",
+          result?.message ?? "SnapDraw couldn't start recording.",
+          "Make sure the source is a normal website/tab, then try again.",
+        ),
+      };
+    }
+
+    await setRecordingBadge(true, result.source);
+    return {
+      ok: true,
+      status: {
+        recording: true,
+        source: result.source,
+        startedAt: result.startedAt,
+      },
+    };
+  } catch (error) {
+    await setRecordingBadge(false);
+    await closeOffscreenSafely();
+    return { ok: false, error: toErrorPayload(error) };
+  }
+}
+
+async function handleStopRecording(
+  request: StopRecordingRequest,
+): Promise<StopRecordingResponse> {
+  try {
+    if (!(await hasOffscreenDocument())) {
+      await setRecordingBadge(false);
+      return { ok: true, discarded: Boolean(request.discard) };
+    }
+
+    const result = await sendToOffscreen<OffscreenStopResult>({
+      target: OFFSCREEN_TARGET,
+      type: "offscreen:stop",
+      discard: Boolean(request.discard),
+    });
+
+    await closeOffscreenSafely();
+    await setRecordingBadge(false);
+
+    if (!result?.ok) {
+      return {
+        ok: false,
+        error: errorPayload(
+          "CAPTURE_FAILED",
+          result?.message ?? "The recording could not be saved.",
+          "Try recording again from the popup.",
+        ),
+      };
+    }
+
+    if (result.sessionId) {
+      await chrome.tabs.create({
+        url: buildVideoEditorUrl(result.sessionId),
+        active: true,
+      });
+      return {
+        ok: true,
+        sessionId: result.sessionId,
+        name: result.name,
+        discarded: false,
+      };
+    }
+
+    return { ok: true, discarded: true };
+  } catch (error) {
+    await setRecordingBadge(false);
+    await closeOffscreenSafely();
+    return { ok: false, error: toErrorPayload(error) };
+  }
+}
+
+async function handleRecordingStatus(): Promise<RecordingStatusResponse> {
+  return { ok: true, status: await readRecordingStatus() };
+}
+
+chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+  if (typeof message !== "object" || message === null) {
+    return undefined;
+  }
+
+  const envelope = message as {
+    target?: unknown;
+    type?: unknown;
+    sessionId?: unknown;
+  };
+
+  // A recording finished on its own (source tab closed / sharing stopped).
+  if (
+    envelope.target === "snapdraw-sw" &&
+    envelope.type === "recording:saved" &&
+    typeof envelope.sessionId === "string"
+  ) {
+    void (async () => {
+      await closeOffscreenSafely();
+      await setRecordingBadge(false);
+      try {
+        await chrome.tabs.create({
+          url: buildVideoEditorUrl(envelope.sessionId as string),
+          active: true,
+        });
+      } catch (error) {
+        logActionError("open video editor", error);
+      }
+    })();
+    return undefined;
+  }
+
+  if (envelope.target === OFFSCREEN_TARGET) {
+    return undefined;
+  }
+
+  switch (envelope.type) {
+    case "RECORDING_START":
+      void handleStartRecording(message as StartRecordingRequest).then(sendResponse);
+      return true;
+    case "RECORDING_STOP":
+      void handleStopRecording(message as StopRecordingRequest).then(sendResponse);
+      return true;
+    case "RECORDING_STATUS":
+      void handleRecordingStatus().then(sendResponse);
+      return true;
+    default:
+      return undefined;
+  }
 });
