@@ -15,8 +15,11 @@ import { wrapImageDataUrlInSvgDataUrl } from "../utils/image-conversion";
 import type { EditorTheme } from "./useColorScheme";
 
 export interface EditorCanvasProps {
-  prepared: PreparedScreenshot;
+  /** The loaded capture, or `null` for a blank canvas. */
+  prepared: PreparedScreenshot | null;
   theme: EditorTheme;
+  /** Initial scene background (may be "transparent"). */
+  background: string;
   /** Mirrors the screenshot's lock state for the accessible status line. */
   imagesLocked: boolean;
   /** Called once Excalidraw has mounted so the header can drive the scene. */
@@ -55,9 +58,10 @@ function createFileId(): string {
 }
 
 /**
- * Builds the initial Excalidraw scene: a single locked image element at the
- * screenshot's natural pixel size (so exports keep full resolution) plus the
- * matching binary file entry.
+ * Builds the initial Excalidraw scene: for a capture, a single locked image
+ * element at the screenshot's natural pixel size (so exports keep full
+ * resolution) plus the matching binary file entry; for a blank canvas, an
+ * empty scene with the chosen background.
  *
  * The capture is wrapped in an SVG data URL on purpose. Excalidraw's dark theme
  * counter-inverts *raster* image elements so they stay readable on its filtered
@@ -66,7 +70,19 @@ function createFileId(): string {
  * pixels and the exported PNG matches the screen. See
  * `wrapImageDataUrlInSvgDataUrl` for the details.
  */
-function buildInitialData(prepared: PreparedScreenshot): ExcalidrawInitialDataState {
+function buildInitialData(
+  prepared: PreparedScreenshot | null,
+  background: string,
+): ExcalidrawInitialDataState {
+  const appState = {
+    name: prepared?.record.name ?? "Untitled canvas",
+    viewBackgroundColor: background,
+  };
+
+  if (!prepared) {
+    return { elements: [], appState, files: {} };
+  }
+
   // `FileId` is a branded string in the published types; the id we generate is
   // a plain uuid at runtime, so this is the single boundary cast we need.
   const fileId = createFileId() as FileId;
@@ -108,13 +124,7 @@ function buildInitialData(prepared: PreparedScreenshot): ExcalidrawInitialDataSt
 
   return {
     elements: convertToExcalidrawElements(skeleton),
-    appState: {
-      name: prepared.record.name,
-      // Transparent canvas: the screenshot (rendered unfiltered, see above) is
-      // the background, and the surrounding workspace takes its colour from
-      // SnapDraw/Excalidraw's page background. Exported PNGs still use white.
-      viewBackgroundColor: "transparent",
-    },
+    appState,
     files,
   };
 }
@@ -122,13 +132,14 @@ function buildInitialData(prepared: PreparedScreenshot): ExcalidrawInitialDataSt
 export function EditorCanvas({
   prepared,
   theme,
+  background,
   imagesLocked,
   onApiReady,
   children,
 }: EditorCanvasProps) {
   // Built exactly once for the lifetime of this editor session.
   const [initialData] = useState<ExcalidrawInitialDataState>(() =>
-    buildInitialData(prepared),
+    buildInitialData(prepared, background),
   );
 
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
@@ -151,7 +162,7 @@ export function EditorCanvas({
   // never touch the viewport again (the user owns pan and zoom; "Reset view" in
   // the header is the explicit way back).
   useEffect(() => {
-    if (!apiReady || hasFittedOnceRef.current) {
+    if (!prepared || !apiReady || hasFittedOnceRef.current) {
       return;
     }
 
@@ -192,7 +203,7 @@ export function EditorCanvas({
       cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [apiReady]);
+  }, [apiReady, prepared]);
 
   return (
     <Excalidraw
@@ -204,14 +215,16 @@ export function EditorCanvas({
       {children}
       {/* Screen-reader status: Excalidraw's children slot renders inside its
           container, so the lock state is announced without touching its UI. */}
-      <span
-        className="sd-sr-only"
-        role="status"
-        aria-live="polite"
-        title={imagesLocked ? "Screenshot locked" : "Screenshot unlocked"}
-      >
-        {imagesLocked ? "Screenshot locked" : "Screenshot unlocked"}
-      </span>
+      {prepared ? (
+        <span
+          className="sd-sr-only"
+          role="status"
+          aria-live="polite"
+          title={imagesLocked ? "Screenshot locked" : "Screenshot unlocked"}
+        >
+          {imagesLocked ? "Screenshot locked" : "Screenshot unlocked"}
+        </span>
+      ) : null}
     </Excalidraw>
   );
 }

@@ -1130,6 +1130,7 @@ async function main() {
             version: document.querySelector(".sd-popup__version")?.textContent ?? "",
             tagline: document.querySelector(".sd-popup__tagline")?.textContent?.trim() ?? "",
             hasHistory: Boolean(document.querySelector('button[aria-label="Open screenshot history"]')),
+            hasBlankCanvas: Boolean(document.querySelector('button[aria-label="Open blank canvas"]')),
           };
         })()`,
       );
@@ -1143,6 +1144,7 @@ async function main() {
         popupState.tagline,
       );
       check("screenshot history entry point is rendered", popupState.hasHistory === true);
+      check("popup offers a separate blank-canvas action", popupState.hasBlankCanvas === true);
 
       const actionStyles = await browser.evaluate(
         pages.popup.sessionId,
@@ -1170,9 +1172,8 @@ async function main() {
         })()`,
       );
       check(
-        "capture action explains itself inside the button",
-        /Capture Screenshot/.test(actionStyles.captureText) &&
-          /Visible area of this tab/.test(actionStyles.captureText),
+        "capture button has no helper text",
+        /^Capture Screenshot$/.test(actionStyles.captureText),
         actionStyles.captureText,
       );
       check(
@@ -1413,6 +1414,7 @@ async function main() {
       check("no Excalidraw/social links in the menu", excalidrawLinks.length === 0, excalidrawLinks.join(","));
       check("menu offers SnapDraw's GitHub link", /SnapDraw on GitHub/.test(menu?.text ?? ""));
       check("menu offers About SnapDraw", /About SnapDraw/.test(menu?.text ?? ""));
+      check("menu offers Canvas preferences", /Canvas preferences/.test(menu?.text ?? ""));
       check(
         "GitHub link points at the SnapDraw repository",
         (menu?.anchors ?? []).includes("https://github.com/GaurangPohankar/SnapDraw"),
@@ -2176,56 +2178,83 @@ async function main() {
         JSON.stringify(idleRecording),
       );
 
-      // "Whole screen" opens the screen-share window (a visible page is required
-      // for Chrome's getDisplayMedia picker). Test it on its own popup page since
-      // the popup closes itself after creating the window.
+      // "Whole screen" opens the recorder window directly on Chrome's picker.
+      // Headless Chrome has no real display picker, so stub getDisplayMedia with
+      // a canvas stream to verify the recorder auto-starts without any click.
       const screenPopup = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
         width: 340,
         height: 640,
       });
-      await waitForSelector(browser, screenPopup.sessionId, 'button[aria-label="Record whole screen"]');
-      await browser.evaluate(
+      await waitForSelector(
+        browser,
         screenPopup.sessionId,
-        `document.querySelector('button[aria-label="Record whole screen"]')?.click(); true`,
+        'button[aria-label="Record whole screen"]',
       );
-      const recorderTarget = await waitFor(
-        async () => {
-          for (const info of browser.targets.values()) {
-            if (info.type === "page" && info.url.includes("/src/recorder/recorder.html")) {
-              return info;
-            }
-          }
-          return null;
+      const recorderUrl = extensionUrl(extensionId, "src/recorder/recorder.html");
+      const recorderPage = await openPage(browser, "about:blank", {
+        width: 460,
+        height: 400,
+      });
+      await browser.send(
+        "Page.addScriptToEvaluateOnNewDocument",
+        {
+          source: `
+            (() => {
+              const canvas = document.createElement("canvas");
+              canvas.width = 640;
+              canvas.height = 360;
+              const context = canvas.getContext("2d");
+              let frame = 0;
+              setInterval(() => {
+                context.fillStyle = frame % 2 ? "#0f172a" : "#1e293b";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = "#a78bfa";
+                context.fillRect(40, 40, 220, 90);
+                frame += 1;
+              }, 33);
+              const stream = canvas.captureStream(30);
+              Object.defineProperty(navigator.mediaDevices, "getDisplayMedia", {
+                configurable: true,
+                value: async () => stream,
+              });
+            })();
+          `,
         },
-        { label: "screen recorder window", timeoutMs: 15_000 },
+        recorderPage.sessionId,
       );
-      check("whole screen opens the screen recorder window", Boolean(recorderTarget));
-      const recorderSession = await browser.attach(recorderTarget.targetId);
-      await waitForSelector(browser, recorderSession, "#start");
-      const recorderState = await browser.evaluate(
-        recorderSession,
-        `({
-          start: document.querySelector("#start")?.textContent?.trim() ?? "",
-          note: document.querySelector(".sd-rec__note")?.textContent?.trim() ?? "",
-        })`,
+      await browser.send(
+        "Page.navigate",
+        { url: recorderUrl },
+        recorderPage.sessionId,
+      );
+      await waitForSelector(browser, recorderPage.sessionId, "#status-text");
+      const recorderState = await waitFor(
+        async () => {
+          const state = await browser.evaluate(
+            recorderPage.sessionId,
+            `({
+              status: document.querySelector("#status-text")?.textContent?.trim() ?? "",
+              hasStart: Boolean(document.querySelector("#start")),
+              retryHidden: document.querySelector("#retry")?.hidden === true,
+              note: document.querySelector(".sd-rec__note")?.textContent?.trim() ?? "",
+            })`,
+          );
+          return state.status === "Recording your screen" ? state : null;
+        },
+        { label: "screen recorder auto-start", timeoutMs: 15_000 },
       );
       check(
-        "screen recorder asks the user to start sharing",
-        /Start sharing/i.test(recorderState.start) &&
+        "whole-screen recorder opens the picker and starts without a Start step",
+        recorderState.hasStart === false &&
+          recorderState.retryHidden === true &&
           /locally/i.test(recorderState.note),
         JSON.stringify(recorderState),
-      );
-      // Screenshot at the recorder window's real size for the docs.
-      await browser.send(
-        "Emulation.setDeviceMetricsOverride",
-        { width: 460, height: 400, deviceScaleFactor: 1, mobile: false },
-        recorderSession,
       );
       await sleep(250);
       const recorderShot = await browser.send(
         "Page.captureScreenshot",
         { format: "png" },
-        recorderSession,
+        recorderPage.sessionId,
       );
       await writeFile(
         path.join(screenshotsDir, "screen-recorder.png"),
@@ -2235,7 +2264,14 @@ async function main() {
         "screen recorder screenshot saved",
         existsSync(path.join(screenshotsDir, "screen-recorder.png")),
       );
-      await browser.send("Target.closeTarget", { targetId: recorderTarget.targetId });
+      await browser.evaluate(
+        recorderPage.sessionId,
+        `document.querySelector("#cancel")?.click(); true`,
+      );
+      await sleep(300);
+      if (browser.targets.has(recorderPage.targetId)) {
+        await browser.send("Target.closeTarget", { targetId: recorderPage.targetId });
+      }
       if (browser.targets.has(screenPopup.targetId)) {
         await browser.send("Target.closeTarget", { targetId: screenPopup.targetId });
       }
@@ -2545,6 +2581,95 @@ async function main() {
     });
 
     /* ------------------------------------------------------------------ */
+    await step("Blank canvas opens as a standalone editor", async () => {
+      const blankPopup = await openExtensionPage(browser, extensionId, "src/popup/popup.html", {
+        width: 340,
+        height: 640,
+      });
+      await waitForSelector(
+        browser,
+        blankPopup.sessionId,
+        'button[aria-label="Open blank canvas"]',
+      );
+      await clickButtonByAriaLabel(browser, blankPopup, "Open blank canvas");
+
+      const blankTarget = await browser.waitForTarget(
+        (info) =>
+          info.type === "page" &&
+          info.url.includes("/src/editor/editor.html") &&
+          new URL(info.url).searchParams.get("blank") === "1",
+        "blank canvas editor tab",
+      );
+      const blankSession = await browser.attach(blankTarget.targetId);
+      await browser.send("Page.enable", {}, blankSession);
+      await browser.send("Runtime.enable", {}, blankSession);
+      const blankPage = {
+        targetId: blankTarget.targetId,
+        sessionId: blankSession,
+        url: blankTarget.url,
+      };
+      await waitForSelector(browser, blankSession, ".excalidraw");
+      await sleep(700);
+
+      const blankState = await browser.evaluate(
+        blankSession,
+        `({
+          name: document.querySelector(".sd-header__name")?.textContent?.trim() ?? "",
+          meta: document.querySelector(".sd-header__dimensions")?.textContent?.trim() ?? "",
+          hasLock: Boolean(document.querySelector('button[aria-label="Lock screenshot"]')),
+          hasToolbar: Boolean(document.querySelector(".excalidraw .App-toolbar")),
+          errorScreen: Boolean(document.querySelector(".sd-screen")),
+        })`,
+      );
+      check(
+        "blank canvas opens without a capture session",
+        blankState.errorScreen === false && blankState.hasToolbar === true,
+        JSON.stringify(blankState),
+      );
+      check(
+        "blank canvas header shows an untitled document",
+        blankState.name === "Untitled canvas" && blankState.meta === "Blank canvas",
+        JSON.stringify(blankState),
+      );
+      check(
+        "blank canvas has no screenshot lock control",
+        blankState.hasLock === false,
+        JSON.stringify(blankState),
+      );
+
+      // Drawing and exporting on the blank canvas works like a normal capture.
+      await clickAt(browser, blankPage, 640, 430);
+      await pressKey(browser, blankPage, "r", "KeyR", 82);
+      await sleep(200);
+      await dragFromTo(
+        browser,
+        blankPage,
+        { x: 480, y: 330 },
+        { x: 800, y: 520 },
+      );
+      await sleep(400);
+      const beforeBlankDownload = await snapshotDownloads();
+      await clickSelectorWithMouse(browser, blankPage, 'button[aria-label="Download PNG"]');
+      const blankFile = await waitForNewDownload(
+        beforeBlankDownload,
+        "Untitled-canvas",
+        "png",
+      );
+      const blankPng = await readFile(blankFile);
+      check(
+        "blank canvas exports a PNG",
+        blankPng.length > 1000 &&
+          blankPng[0] === 0x89 &&
+          blankPng[1] === 0x50 &&
+          blankPng[2] === 0x4e &&
+          blankPng[3] === 0x47,
+        `${blankPng.length} bytes`,
+      );
+
+      await browser.send("Target.closeTarget", { targetId: blankTarget.targetId });
+    });
+
+    /* ------------------------------------------------------------------ */
     await step("Restricted pages and missing sessions show friendly errors", async () => {
       // Activating an extension page makes it the active tab: capture must fail
       // with RESTRICTED_PAGE instead of a cryptic Chrome error.
@@ -2730,6 +2855,132 @@ async function main() {
       await sleep(300);
       await clickAt(browser, editorOne, 640, 520);
       await sleep(200);
+
+      // Canvas preferences: theme + background, persisted across reloads.
+      await browser.evaluate(
+        editorOne.sessionId,
+        `document.querySelector(".main-menu-trigger")?.click(); true`,
+      );
+      await waitForSelector(browser, editorOne.sessionId, ".dropdown-menu");
+      const openedPreferences = await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          const item = Array.from(
+            document.querySelectorAll(".dropdown-menu button, .dropdown-menu a"),
+          ).find((element) => /Canvas preferences/i.test(element.textContent ?? ""));
+          item?.click();
+          return Boolean(item);
+        })()`,
+      );
+      check("menu opens Canvas preferences", openedPreferences === true);
+      await waitForSelector(browser, editorOne.sessionId, ".sd-preferences__dialog");
+      const preferencesInfo = await browser.evaluate(
+        editorOne.sessionId,
+        `({
+          themes: Array.from(document.querySelectorAll(".sd-preferences__theme")).map(
+            (element) => (element.textContent ?? "").trim(),
+          ),
+          backgrounds: document.querySelectorAll(".sd-preferences__swatch").length,
+        })`,
+      );
+      check(
+        "canvas preferences offers theme and background choices",
+        preferencesInfo.themes.length === 3 &&
+          /System/.test(preferencesInfo.themes.join(" ")) &&
+          /Light/.test(preferencesInfo.themes.join(" ")) &&
+          /Dark/.test(preferencesInfo.themes.join(" ")) &&
+          preferencesInfo.backgrounds >= 6,
+        JSON.stringify(preferencesInfo),
+      );
+      const preferencesShot = await browser.send(
+        "Page.captureScreenshot",
+        { format: "png" },
+        editorOne.sessionId,
+      );
+      await writeFile(
+        path.join(screenshotsDir, "editor-preferences.png"),
+        Buffer.from(preferencesShot.data, "base64"),
+      );
+      check(
+        "canvas preferences screenshot saved",
+        existsSync(path.join(screenshotsDir, "editor-preferences.png")),
+      );
+      await browser.evaluate(
+        editorOne.sessionId,
+        `(() => {
+          Array.from(document.querySelectorAll(".sd-preferences__theme"))
+            .find((element) => /Dark/.test(element.textContent ?? ""))
+            ?.click();
+          document.querySelector('[aria-label="White canvas background"]')?.click();
+          return true;
+        })()`,
+      );
+      await sleep(400);
+      const savedPreferences = await browser.evaluate(
+        editorOne.sessionId,
+        `localStorage.getItem("snapdraw.canvas-preferences.v1")`,
+      );
+      check(
+        "canvas preferences are stored locally",
+        (() => {
+          try {
+            const parsed = JSON.parse(savedPreferences);
+            return parsed.theme === "dark" && parsed.background === "#ffffff";
+          } catch {
+            return false;
+          }
+        })(),
+        savedPreferences,
+      );
+      await browser.evaluate(
+        editorOne.sessionId,
+        `document.querySelector('[aria-label="Close canvas preferences"]')?.click(); true`,
+      );
+      await sleep(250);
+
+      // Open a fresh blank editor tab: preferences are stored on the extension
+      // origin and must survive a new tab (and a browser restart). The capture
+      // sessions are gone by now (history was cleared earlier), so use a blank
+      // canvas to avoid depending on a stored screenshot.
+      const reopenedEditor = await openPage(
+        browser,
+        extensionUrl(extensionId, "src/editor/editor.html?blank=1"),
+        {
+          width: 1200,
+          height: 760,
+        },
+      );
+      try {
+        await waitForSelector(browser, reopenedEditor.sessionId, ".excalidraw");
+      } catch (error) {
+        const debug = await browser.evaluate(
+          reopenedEditor.sessionId,
+          `({
+            url: location.href,
+            ready: document.readyState,
+            title: document.title,
+            text: (document.body?.innerText ?? "").slice(0, 500),
+            hasScreen: Boolean(document.querySelector(".sd-screen")),
+            scripts: document.scripts.length,
+          })`,
+        );
+        throw new Error(`${error instanceof Error ? error.message : error} :: ${JSON.stringify(debug)}`);
+      }
+      await sleep(900);
+      const reloadedPreferences = await browser.evaluate(
+        reopenedEditor.sessionId,
+        `({
+          stored: localStorage.getItem("snapdraw.canvas-preferences.v1"),
+          dark: Boolean(document.querySelector(".excalidraw.theme--dark")),
+        })`,
+      );
+      check(
+        "canvas preferences survive a new editor tab",
+        reloadedPreferences.dark === true &&
+          /"theme":"dark"/.test(reloadedPreferences.stored ?? ""),
+        JSON.stringify(reloadedPreferences),
+      );
+      await browser.send("Target.closeTarget", { targetId: reopenedEditor.targetId });
 
       check("editor screenshots saved", existsSync(path.join(screenshotsDir, "editor-dark.png")));
 

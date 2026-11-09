@@ -11,6 +11,7 @@ import {
   screenRecorderUrl,
   startRecording,
   stopRecording,
+  buildBlankEditorUrl,
 } from "../utils/messaging";
 import { ErrorPanel } from "./components/ErrorPanel";
 import { Header } from "./components/Header";
@@ -22,6 +23,7 @@ import {
   ClockIcon,
   ImageIcon,
   InfoIcon,
+  PencilIcon,
   ScreenIcon,
   ShieldIcon,
   TabIcon,
@@ -252,7 +254,8 @@ export function Popup() {
    *
    * Chrome requires a visible extension page to call `getDisplayMedia()` (the
    * screen-share system picker answers there), and the recording must outlive
-   * the popup. The window is not a tab and closes itself after saving.
+   * the popup. The recorder window immediately opens Chrome's picker — there is
+   * no intermediate confirmation step — and closes itself after saving.
    */
   const openScreenRecorder = useCallback(async (): Promise<void> => {
     if (isPreview || startingSource !== null) {
@@ -285,6 +288,30 @@ export function Popup() {
       setStartingSource(null);
     }
   }, [isPreview, startingSource]);
+
+  /** Opens a fresh Excalidraw canvas with no captured screenshot behind it. */
+  const openBlankCanvas = useCallback((): void => {
+    if (isPreview) {
+      const previewUrl = new URL("../editor/editor.html?blank=1", window.location.href);
+      window.open(previewUrl.toString(), "_blank", "noopener");
+      return;
+    }
+
+    try {
+      if (!isExtensionContext()) {
+        throw new Error("Blank canvas needs the SnapDraw extension.");
+      }
+      chrome.tabs.create({ url: buildBlankEditorUrl() });
+      window.close();
+    } catch (openError) {
+      showToast({
+        tone: "error",
+        title: "Couldn't open a blank canvas",
+        description:
+          openError instanceof Error ? openError.message : "Please try again.",
+      });
+    }
+  }, [isPreview, showToast]);
 
   const finishRecording = useCallback(
     async (discard: boolean): Promise<void> => {
@@ -335,7 +362,7 @@ export function Popup() {
       ? phase === "capturing"
         ? "Capturing the visible area…"
         : "Opening the editor in a new tab…"
-      : "Visible area of this tab → editor";
+      : null;
 
   const recordDisabled =
     isPreview ||
@@ -447,7 +474,9 @@ export function Popup() {
                         onClick={() => void capture()}
                       >
                         <span className="sd-popup__action-title">{actionLabel}</span>
-                        <span className="sd-popup__action-sub">{actionSubLabel}</span>
+                        {actionSubLabel ? (
+                          <span className="sd-popup__action-sub">{actionSubLabel}</span>
+                        ) : null}
                       </Button>
                     )}
 
@@ -481,12 +510,31 @@ export function Popup() {
                     loading={startingSource === "desktop"}
                     disabled={recordDisabled}
                     aria-label="Record whole screen"
-                    title="Open a compact window to record your whole screen — every tab and app"
+                    title="Open Chrome's picker and record your whole screen — every tab and app"
                     onClick={() => void openScreenRecorder()}
                   >
                     Whole screen
                   </Button>
                 </div>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  fullWidth
+                  leadingIcon={<PencilIcon size={16} />}
+                  aria-label="Open blank canvas"
+                  title="Open a fresh Excalidraw canvas with no screenshot"
+                  disabled={
+                    startingSource !== null ||
+                    stopping ||
+                    screenRecordingActive ||
+                    status === "capturing" ||
+                    status === "success"
+                  }
+                  onClick={openBlankCanvas}
+                >
+                  Blank canvas
+                </Button>
 
                 {recordError ? (
                   <p className="sd-popup__record-error" role="alert">

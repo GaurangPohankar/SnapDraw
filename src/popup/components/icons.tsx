@@ -86,6 +86,16 @@ export function ScreenIcon(props: IconProps) {
   );
 }
 
+/** Pencil mark for the "blank canvas" action. */
+export function PencilIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M4 20h4.2L20 8.2a2.1 2.1 0 0 0-3-3L4.2 18 4 20Z" />
+      <path d="m15.6 5.4 3 3" />
+    </IconBase>
+  );
+}
+
 /** Check mark shown once the editor tab has opened. */
 export function CheckIcon(props: IconProps) {
   return (

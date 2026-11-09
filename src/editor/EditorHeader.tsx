@@ -34,7 +34,8 @@ import {
 } from "./icons";
 
 export interface EditorHeaderProps {
-  prepared: PreparedScreenshot;
+  /** The loaded capture, or `null` for a blank canvas. */
+  prepared: PreparedScreenshot | null;
   /** Live Excalidraw API; `null` until the canvas has mounted. */
   api: ExcalidrawImperativeAPI | null;
   /** Wrapper around the Excalidraw canvas, used for synthetic history keys. */
@@ -77,7 +78,7 @@ export function EditorHeader({
 }: EditorHeaderProps) {
   const [pendingAction, setPendingAction] = useState<"copy" | "download" | null>(null);
 
-  const docName = prepared.record.name.trim() || "Screenshot";
+  const docName = prepared?.record.name.trim() || "Untitled canvas";
   const clipboardSupported = isClipboardImageCopySupported();
   const busy = pendingAction !== null;
   const exportReady = Boolean(api) && sceneReady;
@@ -101,7 +102,9 @@ export function EditorHeader({
       showToast({
         tone: "info",
         title: "View reset",
-        description: "The whole screenshot is in view again.",
+        description: prepared
+          ? "The whole screenshot is in view again."
+          : "Your drawing is in view again.",
         duration: 2200,
       });
     }
@@ -150,7 +153,7 @@ export function EditorHeader({
       showToast({
         tone: "success",
         title: "Copied to clipboard",
-        description: "Paste your annotated screenshot anywhere.",
+        description: "Paste your annotated image anywhere.",
       });
     } catch (error) {
       const { message, hint } = describeActionError(error);
@@ -172,7 +175,7 @@ export function EditorHeader({
     try {
       const scene = readScene(api);
       const blob = await exportSceneToPngBlob(scene);
-      const filename = buildExportFilename(prepared.record.name);
+      const filename = buildExportFilename(prepared?.record.name ?? docName);
       downloadBlob(blob, filename);
       showToast({
         tone: "success",
@@ -209,7 +212,9 @@ export function EditorHeader({
             Local
           </span>
           <span className="sd-header__dimensions">
-            {prepared.width} × {prepared.height} · {prepared.sizeLabel}
+            {prepared
+              ? `${prepared.width} × ${prepared.height} · ${prepared.sizeLabel}`
+              : "Blank canvas"}
           </span>
         </span>
       </div>
@@ -244,28 +249,34 @@ export function EditorHeader({
           <Button
             variant="icon"
             size="sm"
-            title="Reset view — fit the screenshot to the screen"
+            title={
+              prepared
+                ? "Reset view — fit the screenshot to the screen"
+                : "Reset view — fit your drawing to the screen"
+            }
             aria-label="Reset view"
             disabled={!api}
             onClick={handleResetView}
           >
             <FitViewIcon />
           </Button>
-          <Button
-            variant="icon"
-            size="sm"
-            title={
-              imagesLocked
-                ? "Screenshot locked — click to unlock"
-                : "Screenshot unlocked — click to lock"
-            }
-            aria-label={imagesLocked ? "Unlock screenshot" : "Lock screenshot"}
-            aria-pressed={imagesLocked}
-            disabled={!api}
-            onClick={handleToggleLock}
-          >
-            {imagesLocked ? <LockIcon /> : <UnlockIcon />}
-          </Button>
+          {prepared ? (
+            <Button
+              variant="icon"
+              size="sm"
+              title={
+                imagesLocked
+                  ? "Screenshot locked — click to unlock"
+                  : "Screenshot unlocked — click to lock"
+              }
+              aria-label={imagesLocked ? "Unlock screenshot" : "Lock screenshot"}
+              aria-pressed={imagesLocked}
+              disabled={!api}
+              onClick={handleToggleLock}
+            >
+              {imagesLocked ? <LockIcon /> : <UnlockIcon />}
+            </Button>
+          ) : null}
         </div>
 
         <span className="sd-header__divider" aria-hidden="true" />

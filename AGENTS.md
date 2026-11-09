@@ -107,13 +107,15 @@ public/          manifest.json (permissions, CSP, commands, stable key), excalid
                  icons/ (generated PNGs), fonts/ (generated, gitignored)
 src/background/  service-worker.ts — capture + recording orchestration, badge lifecycle
 src/popup/       Popup.tsx, useCapture.ts, useRecentScreenshots.ts, openScreenshot.ts, shortcut.ts
-src/editor/      Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, excalidrawActions.ts,
-                 AboutDialog.tsx, links.ts, useColorScheme.ts, editor.css
+src/editor/      Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, CanvasPreferencesDialog.tsx,
+                 useCanvasPreferences.ts, excalidrawActions.ts, AboutDialog.tsx, links.ts,
+                 useColorScheme.ts, editor.css
 src/video/       VideoEditor.tsx, VideoStage.tsx, VideoHeader.tsx, TransportBar.tsx, video.css
 src/offscreen/   offscreen.html + offscreen.ts — background MediaRecorder for "This tab"
-src/recorder/    recorder.html + recorder.ts — visible screen-share window for "Whole screen"
+src/recorder/    recorder.html + recorder.ts — visible screen-share window for "Whole screen";
+                 opens Chrome's picker immediately on load
 src/services/    screenshot, storage, thumbnail, image, export, clipboard, recording, video,
-                 video-export services
+                 video-export, preferences services
 src/utils/       messaging.ts, image-conversion.ts, canvas-readback.ts
 src/types/       index.ts (all cross-boundary contracts) + excalidraw-utils.d.ts
 src/components/  Button, Toast, Logo       src/styles/ global.css (design tokens)
@@ -126,13 +128,16 @@ vite.config.ts, vitest.config.ts, tsconfig.json
 ## Architecture in 60 seconds
 
 - The **popup** messages the **service worker**; the worker captures the visible tab, writes a `Blob`
-  + thumbnail to **IndexedDB**, then opens `src/editor/editor.html?session=<uuid>`.
+  + thumbnail to **IndexedDB**, then opens `src/editor/editor.html?session=<uuid>`. The popup's
+  **Blank canvas** action opens the same editor with `?blank=1` (no session/record).
 - The **editor tab** loads the record (and keeps it), builds one locked Excalidraw image element, and
-  exports a white-background PNG via `exportToBlob`. Refreshing is safe.
+  exports a PNG via `exportToBlob`; a blank canvas starts with an empty scene. Refreshing is safe.
+  The SnapDraw menu includes **Canvas preferences** (theme + canvas background) persisted locally.
 - **"This tab" recording:** popup obtains a `tabCapture` stream id, the worker creates a hidden
   **offscreen document** that owns `MediaRecorder`; recording continues after the popup closes.
-- **"Whole screen" recording:** the popup opens a small visible **recorder window** that answers
-  Chrome's `getDisplayMedia` picker and records there.
+- **"Whole screen" recording:** the popup opens a small visible **recorder window** whose page calls
+  `getDisplayMedia()` on load; Chrome's picker is the first thing shown (no Start-sharing step), and
+  that page records.
 - Both paths save a WebM (`kind: "video"`) and open `src/video/video.html?session=<uuid>`, where a
   transparent Excalidraw overlay sits exactly on the video rectangle; export composites video +
   annotations in real time.
@@ -149,27 +154,34 @@ vite.config.ts, vitest.config.ts, tsconfig.json
    `RECORDING_START` → offscreen document → explicit tab constraints → `MediaRecorder` (4 Mbps,
    250 ms timeslice) → `saveRecording()`.
 3. **Whole-screen recording:** popup → `chrome.windows.create({ type: "popup", 460×400 })` →
-   `recorder.ts` → `getDisplayMedia` → `MediaRecorder` → `saveRecording()` → worker event opens the
-   video editor.
-4. **PNG export:** `src/services/export.service.ts` — scale 1, 16 px padding, white background,
-   `exportWithDarkMode: false`; clipboard or download.
-5. **Annotated video export:** `src/services/video-export.service.ts` — draw each frame + the Excalidraw
+   `recorder.ts` immediately calls `getDisplayMedia` → Chrome picker → `MediaRecorder` →
+   `saveRecording()` → worker event opens the video editor. Cancelling the picker closes the window.
+4. **PNG export:** `src/services/export.service.ts` — scale 1, 16 px padding, `exportWithDarkMode:
+   false`; the scene's `viewBackgroundColor` is used when it is a solid colour, otherwise white
+   (canvas preferences can therefore tint the exported padding).
+5. **Blank canvas:** popup **Blank canvas** button → `chrome.tabs.create(editor.html?blank=1)` →
+   empty Excalidraw scene with the saved canvas background; header shows "Untitled canvas" /
+   "Blank canvas", no screenshot lock, and Copy/Download work normally.
+6. **Canvas preferences:** menu item in both editors → `CanvasPreferencesDialog` → theme
+   (system/light/dark) and background → `preferences.service.ts` (`localStorage`, extension origin) →
+   applied live and on the next editor tab; no Chrome `storage` permission.
+7. **Annotated video export:** `src/services/video-export.service.ts` — draw each frame + the Excalidraw
    static canvas at intrinsic resolution, `canvas.captureStream(30)` + `MediaRecorder` + Web Audio;
    takes as long as the recording.
 
 ## Testing
 
-**Unit tests:** `node node_modules/vitest/vitest.mjs run` — nine suites in `tests/*.test.ts`, **180
+**Unit tests:** `node node_modules/vitest/vitest.mjs run` — ten suites in `tests/*.test.ts`, **188
 tests** at the time of writing. Node environment, no Chrome, no network, `fake-indexeddb`. The
 `createRequire` in `vitest.config.ts` avoids a Windows config-loading probe; don't "simplify" it.
 Suites cover storage/retention, image + video helpers, messaging, manifest invariants, capture/export/
-recording services and the canvas readback shim.
+recording services, the canvas readback shim and canvas preferences.
 
 **E2E:** build `dist/` first, then `node scripts/e2e.mjs` (options `--headed --keep
 --chrome="C:\path\to\chrome.exe"`). Requires Chrome 137+; installs the unpacked extension via the CDP
 `Extensions` domain (branded Chrome 137+ ignores `--load-extension`). Drives real input, clipboard and
 downloads, serves local fixtures on `127.0.0.1`, asserts zero external requests, regenerates
-`docs/screenshots/*.png`. Size: **116 checks** at the time of writing (the generated
+`docs/screenshots/*.png`. Size: **126 checks** at the time of writing (the generated
 `test-results/e2e-report.json` is authoritative — trust it and the console summary over prose counts).
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`,
 `test-results/annotated-video.webm`, `docs/screenshots/*.png`. The harness adds `host_permissions` +
@@ -237,8 +249,15 @@ git push origin main
 
 - Chrome's `getDisplayMedia` picker requires a visible extension page, and a `desktopCapture` stream
   id can't be consumed by the hidden offscreen document. The flow is intentionally popup →
-  `chrome.windows.create({ type: "popup" })` on `src/recorder/recorder.html` → `getDisplayMedia`.
+  `chrome.windows.create({ type: "popup" })` on `src/recorder/recorder.html` → the page calls
+  `getDisplayMedia()` on load.
+- There is **no Start-sharing step**: the recorder window's first action is Chrome's picker. Initial
+  status is "Opening Chrome's picker…"; a cancelled picker (`NotAllowedError`) closes the window.
+  A non-cancel failure shows the error + "Try again" (`#retry`), which re-runs `getDisplayMedia`.
 - The recorder window is a window, not a tab, and closes itself after save/cancel.
+- Current Chrome (156) allows `getDisplayMedia()` on load without a fresh click. If Chrome starts
+  enforcing transient activation, the auto call will reject `NotAllowedError`; the UI then closes
+  silently (treat it as a future compatibility item, not a code bug).
 - Don't add a "symmetric" `chrome.desktopCapture` offscreen path; the `.sandbox/` experiments document
   why it fails.
 
@@ -269,11 +288,13 @@ git push origin main
   outlines and the eyedropper preview). Excalidraw normally inverts swatches together with its
   inverted canvas; on SnapDraw's unfiltered canvas a filtered swatch would show the wrong colour,
   swapping black and white. Don't re-enable these filters.
-- Export always uses a white background with `exportWithDarkMode: false`
-  (`src/services/export.service.ts`); `viewBackgroundColor` stays transparent in the scene.
-- **Don't** revert to a raw PNG data URL, re-enable the filter, or change the export background — that
-  reintroduces the colour shift. E2E asserts the fixture's yellow/magenta pixels survive in the
-  dark-mode editor screenshot, so a colour regression fails the suite.
+- Export uses `exportWithDarkMode: false`; `viewBackgroundColor` from the scene is used when it is a
+  solid colour, otherwise white (`src/services/export.service.ts`). Canvas preferences can therefore
+  tint the exported padding; the default remains white.
+- **Don't** revert to a raw PNG data URL, re-enable the filter, or force the export to ignore the
+  chosen background — that reintroduces the colour shift or makes the palette lie. E2E asserts the
+  fixture's yellow/magenta pixels survive in the dark-mode editor screenshot, so a colour regression
+  fails the suite.
 
 ### 6. Canvas readback shim
 
@@ -337,6 +358,24 @@ git push origin main
   `.sandbox/no-spawn.cjs` or build unsandboxed. Chrome won't start under the default sandbox →
   Chrome work needs danger-full-access. PowerShell text cmdlets corrupt UTF-8 → use the editor
   tools or a Node UTF-8 script. After every build: reload the extension.
+
+### 13. Canvas preferences and blank canvas
+
+- Preferences live in extension-origin `localStorage` (`snapdraw.canvas-preferences.v1`), validated on
+  read by `src/services/preferences.service.ts`; no Chrome `storage` permission, no sync/network.
+  Defaults: `theme: "system"`, `background: "transparent"`.
+- `useCanvasPreferences.ts` resolves "system" via `matchMedia` and listens for cross-tab `storage`
+  events; both the screenshot editor and video editor use it for the theme. The background only
+  applies to the screenshot editor/blank canvas (the video overlay must stay transparent).
+- The background feeds `EditorCanvas`'s `viewBackgroundColor`, is updated live through
+  `api.updateScene`, and is used by `exportSceneToPngBlob` for solid backgrounds; transparent still
+  exports white. Keep that fallback.
+- **Blank canvas** is `editor.html?blank=1` (`isBlankEditorRequest()` + `buildBlankEditorUrl()`). The
+  editor skips the session load, renders an empty scene, shows "Untitled canvas"/"Blank canvas", hides
+  the screenshot lock, and sets `sceneReady` from the API. `EditorCanvas` accepts `prepared: null`.
+  Popup's **Blank canvas** button opens it with `chrome.tabs.create`; do not require a session.
+- Excalidraw's Preferences panel does not exist in 0.18.1; this dialog is SnapDraw's own. Don't add a
+  menu item that tries to open an upstream preferences dialog.
 
 ## Definition of done for changes
 

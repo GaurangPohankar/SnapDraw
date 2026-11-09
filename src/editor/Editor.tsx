@@ -11,13 +11,22 @@ import {
   loadPreparedScreenshot,
   type PreparedScreenshot,
 } from "../services/image.service";
-import { readEditorErrorParam, readSessionId } from "../utils/messaging";
+import { isBlankEditorRequest, readEditorErrorParam, readSessionId } from "../utils/messaging";
 import { AboutDialog } from "./AboutDialog";
 import { EditorCanvas } from "./EditorCanvas";
 import { EditorHeader } from "./EditorHeader";
-import { CloseIcon, ClockIcon, GitHubIcon, InfoIcon, TrashIcon, WarningIcon } from "./icons";
+import {
+  CloseIcon,
+  ClockIcon,
+  GitHubIcon,
+  InfoIcon,
+  SettingsIcon,
+  TrashIcon,
+  WarningIcon,
+} from "./icons";
 import { SNAPDRAW_REPO_URL } from "./links";
-import { useColorScheme } from "./useColorScheme";
+import { useCanvasPreferences } from "./useCanvasPreferences";
+import { CanvasPreferencesDialog } from "./CanvasPreferencesDialog";
 
 /** Friendly copy for the loading and error screens. */
 interface EditorScreenMessage {
@@ -179,27 +188,38 @@ export function Editor() {
   const [annotationCount, setAnnotationCount] = useState(0);
   const [sceneReady, setSceneReady] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [preferencesOpen, setPreferencesOpen] = useState(false);
 
   const workspaceRef = useRef<HTMLDivElement | null>(null);
-  const theme = useColorScheme();
+  const {
+    preferences,
+    theme,
+    background,
+    setTheme,
+    setBackground,
+  } = useCanvasPreferences();
   const { toasts, showToast, dismissToast } = useToast();
 
+  const blankCanvas = useMemo(() => isBlankEditorRequest(), []);
   const captureError = useMemo(() => readEditorErrorParam(), []);
   const sessionId = useMemo(() => readSessionId(), []);
 
   const initialError = useMemo<EditorScreenMessage | null>(() => {
+    if (blankCanvas) {
+      return null;
+    }
     if (captureError) {
       return describeCaptureError(captureError.code, captureError.message);
     }
     return sessionId ? null : SESSION_MISSING;
-  }, [captureError, sessionId]);
+  }, [blankCanvas, captureError, sessionId]);
 
   const [screenError, setScreenError] = useState<EditorScreenMessage | null>(
     initialError,
   );
 
   useEffect(() => {
-    if (initialError || !sessionId) {
+    if (blankCanvas || initialError || !sessionId) {
       return;
     }
 
@@ -237,13 +257,26 @@ export function Editor() {
     return () => {
       cancelled = true;
     };
-  }, [initialError, sessionId]);
+  }, [blankCanvas, initialError, sessionId]);
 
   const handleApiReady = useCallback((nextApi: ExcalidrawImperativeAPI) => {
     setApi(nextApi);
   }, []);
 
-  /** Removes every annotation, keeping the screenshot element untouched. */
+  // Apply persisted canvas preferences to the live scene: a blank canvas is
+  // ready immediately, and changing the background in the preferences dialog
+  // updates the scene (and the PNG padding) without losing annotations.
+  useEffect(() => {
+    if (!api) {
+      return;
+    }
+    if (blankCanvas) {
+      setSceneReady(true);
+    }
+    api.updateScene({ appState: { viewBackgroundColor: background } });
+  }, [api, background, blankCanvas]);
+
+  /** Removes every annotation, keeping a screenshot element untouched. */
   const handleClearAnnotations = useCallback((): void => {
     if (!api) {
       return;
@@ -251,11 +284,14 @@ export function Editor() {
 
     const elements = api.getSceneElements();
     const imageElements = elements.filter((element) => element.type === "image");
-    if (elements.length === imageElements.length) {
+    const annotationElements = elements.filter((element) => element.type !== "image");
+    if (annotationElements.length === 0) {
       showToast({
         tone: "info",
         title: "Nothing to clear",
-        description: "There are no annotations on this screenshot yet.",
+        description: blankCanvas
+          ? "The canvas is already empty."
+          : "There are no annotations on this screenshot yet.",
         duration: 2400,
       });
       return;
@@ -268,9 +304,12 @@ export function Editor() {
     showToast({
       tone: "success",
       title: "Annotations cleared",
-      description: "The screenshot is untouched – undo brings your notes back.",
+      description:
+        imageElements.length > 0
+          ? "The screenshot is untouched – undo brings your notes back."
+          : "Undo brings your drawing back.",
     });
-  }, [api, showToast]);
+  }, [api, blankCanvas, showToast]);
 
   /**
    * The history lives in the popup (it owns the capture list). Chrome 127+
@@ -385,7 +424,7 @@ export function Editor() {
     return <EditorErrorScreen screen={screenError} />;
   }
 
-  if (!prepared) {
+  if (!prepared && !blankCanvas) {
     return <EditorLoadingScreen />;
   }
 
@@ -404,6 +443,7 @@ export function Editor() {
         <EditorCanvas
           prepared={prepared}
           theme={theme}
+          background={background}
           imagesLocked={imagesLocked}
           onApiReady={handleApiReady}
         >
@@ -420,6 +460,13 @@ export function Editor() {
               onSelect={handleClearAnnotations}
             >
               Clear annotations
+            </MainMenu.Item>
+            <MainMenu.Separator />
+            <MainMenu.Item
+              icon={<SettingsIcon />}
+              onSelect={() => setPreferencesOpen(true)}
+            >
+              Canvas preferences
             </MainMenu.Item>
             <MainMenu.Separator />
             <MainMenu.Item
@@ -453,6 +500,20 @@ export function Editor() {
       />
 
       <AboutDialog open={aboutOpen} onClose={() => setAboutOpen(false)} />
+
+      <CanvasPreferencesDialog
+        open={preferencesOpen}
+        onClose={() => setPreferencesOpen(false)}
+        preferences={preferences}
+        onChange={(patch) => {
+          if (patch.theme !== undefined) {
+            setTheme(patch.theme);
+          }
+          if (patch.background !== undefined) {
+            setBackground(patch.background);
+          }
+        }}
+      />
     </div>
   );
 }

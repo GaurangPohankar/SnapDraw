@@ -24,12 +24,17 @@ baked into the exported WebM (or copied as a still frame).*
 
 ![SnapDraw screen recorder window](docs/screenshots/screen-recorder.png)
 
-*"Whole screen" opens a compact screen-share window (not a tab) where Chrome's picker is answered; the
-same window records, then opens the video editor.*
+*"Whole screen" opens a compact screen-share window (not a tab) whose first action is Chrome's own
+screen/window picker; the same window records, then opens the video editor.*
 
 ![SnapDraw menu](docs/screenshots/editor-menu.png)
 
 *The SnapDraw menu replaces Excalidraw's default menu – its only links point back to this project.*
+
+![SnapDraw canvas preferences](docs/screenshots/editor-preferences.png)
+
+*Canvas preferences: system/light/dark theme plus a canvas background that is also used for exported
+PNG padding. Choices are saved locally and apply to every editor tab.*
 
 ![SnapDraw screenshot history](docs/screenshots/popup-history.png)
 
@@ -72,6 +77,12 @@ stay readable at a glance.*
 - **One click to capture** – the popup is a single primary action; the visible viewport is captured
   with `chrome.tabs.captureVisibleTab()` in PNG at its native resolution.
 - **Editor opens automatically** – a new tab loads the screenshot straight into an Excalidraw canvas.
+- **Blank canvas** – a separate **Blank canvas** button opens an empty Excalidraw editor tab when you
+  just want to draw a diagram, with no screenshot behind it. Its exports are normal PNGs.
+- **Canvas preferences** – the SnapDraw menu exposes **Canvas preferences**: follow the system theme or
+  force light/dark (shared by the screenshot and video editors), and choose the canvas background
+  (transparent, white, tints, ink or black) used by screenshot/blank canvases and exported PNG padding.
+  The choices are remembered locally across refreshes, new tabs and browser restarts.
 - **Full Excalidraw toolset** – freehand, arrows, lines, rectangles, diamonds, ellipses, text, colors,
   stroke styles/widths, fill, opacity, layers, zoom/pan, select/move/resize, undo/redo.
 - **Screenshot is protected** – inserted as a **locked** image element at its original pixel size, so
@@ -79,8 +90,9 @@ stay readable at a glance.*
 - **Header actions where you expect them** – undo/redo, reset view and the screenshot lock are grouped
   together; Copy Image and Download sit on the right. No duplicate or dead buttons.
 - **SnapDraw menu** – replaces Excalidraw's menu: *Find on canvas*, *Clear annotations*,
-  *SnapDraw on GitHub* and *About SnapDraw*. Excalidraw's help dialog, social links and the
-  `libraries.excalidraw.com` panel are removed, so the only outbound links are SnapDraw's own.
+  **Canvas preferences**, *Screenshot history*, *SnapDraw on GitHub* and *About SnapDraw*. Excalidraw's
+  help dialog, social links and the `libraries.excalidraw.com` panel are removed, so the only outbound
+  links are SnapDraw's own.
 - **Copy to clipboard** – exports the annotated PNG and writes it to the clipboard (Slack, Discord,
   mail, docs…), with a confirmation toast and graceful error handling.
 - **Download PNG** – full-quality 1:1 export (screenshot + annotations + breathing-room padding).
@@ -89,8 +101,9 @@ stay readable at a glance.*
   - **This tab** needs no recorder tab or window at all: an offscreen document owns the
     `MediaRecorder`, so recording continues after the popup closes. Click the SnapDraw icon again to
     see the live timer, then **Stop and open editor** (or **Cancel recording**).
-  - **Whole screen** opens a compact **screen-share window** (not a tab) where Chrome's own
-    screen/window picker is answered once; the same window records and then opens the editor.
+  - **Whole screen** opens a compact **screen-share window** whose first action is Chrome's own
+    screen/window picker — there is no intermediate confirmation step. The same window records and
+    then opens the editor.
   - The toolbar shows a red **REC** badge while either recording is active.
 - **Annotate videos with the same Excalidraw tools** – the video editor plays the recording with a
   fully transparent Excalidraw layer positioned exactly over the video, so every drawing tool works.
@@ -104,9 +117,10 @@ stay readable at a glance.*
   a **View all** link; each thumbnail carries an image or video type icon so you can tell them apart at
   a glance. Old captures saved without a thumbnail are healed automatically.
   Up to 20 captures/recordings are kept for 30 days.
-- **Light & dark** – follows the OS colour scheme. The canvas and every colour swatch always show the
-  capture's/annotation's true colours, and the exported PNG is always light/white so it matches what
-  annotating in light mode would produce.
+- **Light & dark** – follows the OS colour scheme by default, and **Canvas preferences** can force
+  light or dark per user and remember it. The canvas and every colour swatch always show the
+  capture's/annotation's true colours, and the exported PNG matches the chosen canvas background
+  (white by default).
 - **Friendly failures** – restricted pages (`chrome://`, Web Store, other extensions, DevTools) get
   an explanation and a retry path instead of a cryptic Chrome error.
 - **Keyboard shortcut** – `Ctrl+Shift+S` (`⌘+Shift+S` on macOS), configurable in Chrome.
@@ -142,7 +156,8 @@ The screenshot never travels through URL query strings or cross-tab in-memory va
 worker writes a `Blob` (plus a small thumbnail) into IndexedDB and the editor reads it from the same
 extension origin. Nothing is deleted on load, so **refreshing the editor keeps the screenshot** and
 the same capture can be reopened later from the popup's history. A retention sweep (30 days / newest
-20 captures) keeps the local history bounded.
+20 captures) keeps the local history bounded. **Blank canvas** is separate: it opens the editor with
+`?blank=1` and no capture record, so there is nothing to load or prune.
 
 ### Video recording
 
@@ -162,7 +177,7 @@ the same capture can be reopened later from the popup's history. A retention swe
     │                    video.html?session=<uuid>   (opened by the worker)
     │
     └─ "Whole screen" ─▶ compact screen-share window (src/recorder/recorder.html)
-                             │ getDisplayMedia() → Chrome screen/window picker
+                             │ getDisplayMedia() → Chrome screen/window picker (opens immediately)
                              │ MediaRecorder(WebM) · live timer · toolbar "REC" badge
                              ▼
                          saveRecording() ──▶ IndexedDB ──▶ video editor
@@ -174,10 +189,11 @@ the same capture can be reopened later from the popup's history. A retention swe
 **This tab** needs no extra tab or window: the popup hands a short-lived stream id to the service
 worker and the `MediaRecorder` lives in a hidden offscreen document. **Whole screen** uses a compact
 visible window because Chrome only lets a visible extension page answer its screen-share picker; the
-window is not a tab and closes itself after saving. Starting either recording requires the toolbar-icon
-gesture (that is what grants `activeTab`/`tabCapture` for the tab). Chrome-protected pages (`chrome://`,
-the Web Store, DevTools) are rejected with a friendly message before recording starts, and a failed
-start cleans up the offscreen document again.
+window calls `getDisplayMedia()` as soon as it loads, so Chrome's picker is the first thing you see —
+there is no Start-sharing step — and the window closes itself after saving. Starting either recording
+requires the toolbar-icon gesture (that is what grants `activeTab`/`tabCapture` for the tab).
+Chrome-protected pages (`chrome://`, the Web Store, DevTools) are rejected with a friendly message
+before recording starts, and a failed start cleans up the offscreen document again.
 
 ## Quick start
 
@@ -218,17 +234,30 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
 ## Using SnapDraw
 
 1. Open any normal website.
-2. Click the SnapDraw icon → **Capture Screenshot** (or press `Ctrl+Shift+S` / `⌘+Shift+S`).
-3. The editor tab opens with the screenshot centred and ready to annotate.
+2. Click the SnapDraw icon → **Capture Screenshot** (or press `Ctrl+Shift+S` / `⌘+Shift+S`). For a
+   drawing-only session, click **Blank canvas** instead.
+3. The editor tab opens with the screenshot centred and ready to annotate (or an empty canvas).
 4. Annotate with the Excalidraw toolbar on top.
 5. **Copy Image** and paste anywhere, or **Download** to save `<document-name>.png`.
-6. The **SnapDraw menu** (top-left) has *Find on canvas*, *Clear annotations*, *Screenshot history*,
-   *SnapDraw on GitHub* and *About SnapDraw*. **Reset view** and the **screenshot lock** live in the
-   header next to undo/redo; **Copy Image** and **Download** are on the right.
+6. The **SnapDraw menu** (top-left) has *Find on canvas*, *Clear annotations*, **Canvas preferences**,
+   *Screenshot history*, *SnapDraw on GitHub* and *About SnapDraw*. **Reset view** and the
+   **screenshot lock** live in the header next to undo/redo; **Copy Image** and **Download** are on
+   the right.
 7. Reopen the popup to see the **saved history**: the capture view shows a compact **Recent** strip
    (click a thumbnail to reopen that capture), and **View all · N** opens the full history (reopen,
    delete one, or **Clear all**). Refreshing an editor tab keeps its media, and captures survive
    browser restarts until they age out of the history (30 days / 20 newest).
+
+### Canvas preferences
+
+Open the SnapDraw menu → **Canvas preferences** in any editor tab:
+
+- **Theme** – *System* (follow the OS), *Light* or *Dark*. The setting is applied immediately and is
+  shared by the screenshot editor and the video editor.
+- **Canvas background** – transparent, white, light gray, warm, blue tint, ink or black. It is used
+  behind the scene and for exported PNG padding; transparent exports as white (the default).
+- Choices are stored locally in the extension's own storage, so they survive refreshes, new editor
+  tabs and browser restarts. No account, no sync, no upload.
 
 ### Recording a video
 
@@ -236,9 +265,9 @@ and the editor shows its error state, since `chrome.*` APIs are unavailable outs
 2. Use the split record control:
    - **This tab** records only the current tab. No recorder tab/window is opened; the popup closes
      and recording continues in the background.
-   - **Whole screen** opens a compact **screen-share window**. Click **Start sharing**, pick the screen
-     or window in Chrome's picker, and recording begins (this window is the visible page Chrome
-     requires for screen sharing; it is not a tab).
+   - **Whole screen** opens a compact **screen-share window** and immediately shows Chrome's
+     screen/window picker. Pick the screen or window and recording starts right away (this window is
+     the visible page Chrome requires for screen sharing; it is not a tab).
 3. The toolbar shows a red **REC** badge. Switch tabs, scroll, demo the app — recording continues.
 4. For **This tab**, click the SnapDraw icon again to reopen the popup and use **Stop and open editor**
    / **Cancel recording**. For **Whole screen**, use the buttons in the recorder window.
@@ -266,8 +295,8 @@ for `tabCapture`).
 | `npm run build:only` | Same as `build` without the TypeScript check (faster iteration). |
 | `npm run dev` | Watch-mode development build. |
 | `npm run typecheck` | `tsc --noEmit` across the whole project. |
-| `npm test` | Vitest unit + invariant suite (180 tests: storage/history, image & video helpers, recording service, messaging, manifest, capture/export services, canvas readback shim). |
-| `npm run test:e2e` | Drives the **built** extension in headless Chrome via CDP: capture → editor → annotate → undo/redo → clipboard → download → history/preview → video editor + annotated WebM export → multi-capture isolation → restricted-page errors → local-only audit. Writes `test-results/e2e-report.json` and `docs/screenshots/*.png`. |
+| `npm test` | Vitest unit + invariant suite (188 tests: storage/history, image & video helpers, recording service, messaging, manifest, capture/export services, canvas readback shim, canvas preferences). |
+| `npm run test:e2e` | Drives the **built** extension in headless Chrome via CDP: capture → editor → annotate → undo/redo → clipboard → download → history/preview → blank canvas → video editor + annotated WebM export → multi-capture isolation → canvas preferences → restricted-page errors → local-only audit. Writes `test-results/e2e-report.json` and `docs/screenshots/*.png`. |
 | `npm run verify` | `build` + `test` + `test:e2e`. |
 | `npm run icons` | Regenerates `public/icons/icon{16,48,128}.png` from the logo geometry (no image dependency). |
 | `npm run clean` | Removes `dist/`. |
@@ -285,14 +314,15 @@ snapdraw/
 │   ├── background/service-worker.ts
 │   ├── popup/                      # Popup.tsx, popup.css, useCapture.ts, shortcut.ts, components/
 │   ├── editor/                     # Editor.tsx, EditorCanvas.tsx, EditorHeader.tsx, AboutDialog.tsx,
+│   │                               # CanvasPreferencesDialog.tsx, useCanvasPreferences.ts,
 │   │                               # excalidrawActions.ts, links.ts, editor.css
 │   ├── offscreen/                  # offscreen.html + offscreen.ts (background MediaRecorder)
 │   ├── recorder/                   # visible screen-share window (recorder.html/.ts/.css)
 │   ├── video/                      # VideoEditor.tsx, VideoStage.tsx, VideoHeader.tsx, TransportBar.tsx
 │   ├── components/                 # Button, Toast, Logo (shared primitives)
 │   ├── services/                   # screenshot, image, storage, thumbnail, recording, video,
-│   │                               # video-export, export, clipboard
-│   ├── utils/                      # messaging, image-conversion
+│   │                               # video-export, export, clipboard, preferences
+│   ├── utils/                      # messaging, image-conversion, canvas-readback
 │   ├── types/                      # shared contracts + Excalidraw export type shim
 │   └── styles/global.css           # design tokens + shared component styles
 ├── tests/                          # Vitest suites
@@ -309,13 +339,14 @@ snapdraw/
 
 | Component | Responsibility |
 | --- | --- |
-| **Popup** (`src/popup/`) | Renders the capture action, live shortcut hint, local-only trust copy, inline error states, a compact **Recent** thumbnail preview and the full **Screenshot history** view (reopen, delete, clear). Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
+| **Popup** (`src/popup/`) | Renders the capture action, **Blank canvas** action, record split control, live shortcut hint, local-only trust copy, inline error states, a compact **Recent** thumbnail preview and the full **Screenshot history** view (reopen, delete, clear). Sends `{ type: "CAPTURE_SCREENSHOT" }` to the service worker. |
 | **Service worker** (`src/background/`) | Resolves the active tab, rejects restricted pages, captures the viewport, stores the screenshot + thumbnail, opens the editor tab, and handles the keyboard command. When a keyboard capture fails there is no popup to show the error, so the worker flags the toolbar icon (`!` badge + tooltip) and opens a short explanation tab. |
 | **Screenshot service** (`src/services/screenshot.service.ts`) | The capture pipeline itself (including thumbnail generation and history pruning); pure helpers (`classifyTabUrl`, `buildScreenshotName`, `toErrorPayload`) are unit-tested. |
-| **Editor** (`src/editor/`) | Loads the capture from IndexedDB, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu and loading/error screens. Refresh-safe: the stored capture is not deleted. |
-| **Excalidraw integration** (`src/editor/EditorCanvas.tsx`, `excalidrawActions.ts`) | One locked image element at natural pixel size + `files` map, `fitToContent` on mount, scene updates for lock/clear, PNG export helpers. |
+| **Editor** (`src/editor/`) | Loads the capture (or opens blank) from IndexedDB, builds the Excalidraw scene, provides header actions (undo/redo, reset view, lock, copy, download), a SnapDraw-branded menu with **Canvas preferences**, and loading/error screens. Refresh-safe: the stored capture is not deleted. |
+| **Canvas preferences** (`src/services/preferences.service.ts`, `src/editor/useCanvasPreferences.ts`, `CanvasPreferencesDialog.tsx`) | Persisted theme (system/light/dark) and canvas background (transparent/white/tints/ink/black) in extension-local storage; applied to both editors, used for PNG padding, and shared across tabs. |
+| **Excalidraw integration** (`src/editor/EditorCanvas.tsx`, `excalidrawActions.ts`) | One locked image element at natural pixel size + `files` map (or an empty scene for a blank canvas), `fitToContent` on mount, scene updates for lock/clear, PNG export helpers. |
 | **Recorder orchestration** (`src/background/service-worker.ts` + `src/offscreen/`) | For **This tab**: the popup sends a `tabCapture` stream id to the worker; the worker creates a hidden offscreen document that owns the `MediaRecorder` (WebM + tab audio), keeps the **REC** badge in sync, answers status/stop requests, saves the recording to IndexedDB and opens the video editor. |
-| **Screen recorder window** (`src/recorder/`) | For **Whole screen**: a compact visible window answers Chrome's screen/window picker with `getDisplayMedia()`, records with `MediaRecorder`, saves locally, clears the **REC** badge and opens the video editor. Not a tab. |
+| **Screen recorder window** (`src/recorder/`) | For **Whole screen**: a compact visible window whose page calls `getDisplayMedia()` immediately, so Chrome's screen/window picker opens with no extra click. It records with `MediaRecorder`, saves locally, clears the **REC** badge and opens the video editor. Not a tab. |
 | **Video editor** (`src/video/`) | Loads the recording, renders `<video>` with a transparent Excalidraw overlay on the exact video rect, transport controls, Copy frame / Download annotated video / Download original, progress + cancel. |
 | **Video services** (`src/services/recording.service.ts`, `video.service.ts`, `video-export.service.ts`) | Stream-id handover + recording persistence, video metadata/thumbnail/duration helpers, and real-time annotated-WebM export (`canvas.captureStream` + `MediaRecorder`, tab audio mixed via `AudioContext`). |
 | **Services** (`src/services/`) | `storage` (IndexedDB history, thumbnails, pruning), `image` (decode/encode), `export` (PNG blob + download), `clipboard`. |
@@ -346,9 +377,10 @@ snapdraw/
   (`video/webm;codecs=vp8|vp9,opus`). It keeps a red **REC** badge, answers `RECORDING_STATUS` /
   `RECORDING_STOP` when the popup is reopened, and saves when the tab or recording ends. **Whole
   screen** opens `src/recorder/recorder.html` in a compact window because Chrome only allows a visible
-  extension page to answer `getDisplayMedia()`'s screen picker; that page records, saves the WebM and
-  sends the same worker event to open the editor. In both paths the recording is written to IndexedDB
-  and the editor opens automatically.
+  extension page to answer `getDisplayMedia()`'s screen picker; the page calls `getDisplayMedia()` on
+  load (the picker appears immediately, with no Start-sharing confirmation), records, saves the WebM
+  and sends the same worker event to open the editor. In both paths the recording is written to
+  IndexedDB and the editor opens automatically.
 - **Editing:** `src/video/video.html?session=<id>` renders the video with a transparent Excalidraw
   canvas positioned over the `object-fit: contain` video rectangle — annotations map 1:1 onto the
   recording. Annotations cover the whole clip (per-timestamp annotations are a v2 item).
@@ -379,8 +411,9 @@ snapdraw/
   `src/editor/AboutDialog.tsx`. The only outbound links are SnapDraw's repository and issue tracker.
 - The screenshot element uses its natural pixel dimensions and is fitted to the viewport with
   `scrollToContent(..., { fitToContent: true })`, so the exported PNG is 1:1 with the capture.
-- Export uses `exportToBlob` with `exportScale: 1`, `exportBackground: true`, white background and
-  16px padding (imported in `src/services/export.service.ts`).
+- Export uses `exportToBlob` with `exportScale: 1`, `exportBackground: true`, 16px padding and the
+  canvas background from **Canvas preferences** (solid colours are kept; `transparent` exports white)
+  in `src/services/export.service.ts`.
 
 ## Local-only guarantees
 
@@ -425,8 +458,9 @@ Only four permissions are requested, and there are **no host permissions**:
 **Whole screen** uses `getDisplayMedia()` from the visible recorder window, so it needs no extra
 permission beyond the user's picker choice.
 
-Persistence uses **IndexedDB**, so no `storage` permission is needed. Tabs are opened with
-`chrome.tabs.create` (no permission required) and the editors do not need `scripting`.
+Persistence uses **IndexedDB**, and canvas preferences use the extension origin's **localStorage**, so
+no `storage` permission is needed. Tabs are opened with `chrome.tabs.create` (no permission required)
+and the editors do not need `scripting`.
 
 Chrome refuses to capture a handful of protected pages. SnapDraw detects these up front and explains
 the restriction instead of failing with a raw Chrome error: `chrome://` / `chrome-untrusted://` /
@@ -437,7 +471,7 @@ pages.
 
 ### Unit & invariant tests (`npm test`)
 
-180 tests across nine suites, no network and no real Chrome:
+188 tests across ten suites, no network and no real Chrome:
 
 - `tests/storage.test.ts` – IndexedDB round-trips (multi-MB `Blob` byte-exact), isolation of three
   concurrent sessions, history listing + thumbnails, retention/TTL purge, history trimming and
@@ -459,6 +493,8 @@ pages.
 - `tests/canvas-readback.test.ts` – the narrow `getImageData` shim used for Excalidraw's eyedropper:
   tiny reads are routed through a `willReadFrequently` scratch canvas, everything else (large,
   out-of-bounds, non-Excalidraw canvases, missing browser APIs) falls through untouched.
+- `tests/preferences.test.ts` – canvas preference defaults, validation of stored JSON, partial updates,
+  local-change notifications and system/light/dark theme resolution.
 
 ### End-to-end tests (`npm run test:e2e`)
 
@@ -468,12 +504,13 @@ The E2E harness launches real headless Chrome, installs the **built** extension 
 Testing. Pass `--chrome="<path>"` if autodetection fails; use `--headed --keep` to watch a run and
 keep its temp profile.
 
-It verifies (116 checks, all driven through real input events and real downloads):
+It verifies (126 checks, all driven through real input events and real downloads):
 
 - extension + service worker load with a stable ID (manifest `key`);
-- popup renders the capture action, record-video action, shortcut hint, local-only copy, version,
-  dash-free tagline and the history entry point; the capture and record actions share one size/shape
-  and use distinct colours (primary gradient vs. warm record gradient);
+- popup renders the capture action, **Blank canvas** action, record-video actions, shortcut hint,
+  local-only copy, version, dash-free tagline and the history entry point; the capture button has no
+  helper text and the capture/record actions share one size/shape with distinct colours (primary
+  gradient vs. warm record gradient);
 - one click captures a 1200×760 viewport, opens the editor tab with that session, and loads the
   screenshot into Excalidraw at exactly 1232×792 (native size + 16px padding);
 - the capture is **saved** (not deleted), and reloading the editor tab restores the screenshot with no
@@ -496,9 +533,12 @@ It verifies (116 checks, all driven through real input events and real downloads
   actual page content, not a blank block), links to the full history and opens the newest capture
   when clicked; a legacy capture without a thumbnail gets one generated and persisted automatically;
 - the popup exposes **This tab** and **Whole screen** recording actions, `tabCapture` is available,
-  and **Whole screen** opens the screen-share window with its Start/Stop controls (screenshot saved);
-- the popup capture button carries its own explanation inside, and the two split recording buttons
-  sit on one line with distinct recording colours;
+  and **Whole screen** auto-starts Chrome's picker in the recorder window — no Start-sharing step and
+  the recorder controls appear only once recording begins (screenshot saved);
+- the popup capture button has no helper text, and the two split recording buttons sit on one line
+  with distinct recording colours;
+- **Blank canvas** opens a standalone editor tab with no capture session, shows *Untitled canvas* /
+  *Blank canvas*, omits the screenshot lock, and draws and exports a PNG;
 - the **video editor** loads a real WebM, mounts the transparent Excalidraw overlay over the video,
   accepts a drawn annotation, copies the annotated frame to the clipboard, and **exports a valid
   annotated WebM** (EBML header checked) from a real-time render;
@@ -511,10 +551,12 @@ It verifies (116 checks, all driven through real input events and real downloads
   start-recording gesture is a manual check — see *Recording a video* above);
 - extension pages produce the friendly restricted-page error with retry; missing/expired sessions and
   `?error=` messages show recoverable error screens;
-- light + dark editor screenshots (and the video editor screenshot) are written to `docs/screenshots/`;
-  the dark-mode checks also assert that the capture's fixture colours (yellow band, magenta body)
-  survive in the editor and that the stroke palette exposes true black/white swatches with no dark
-  theme filter applied to them.
+- light + dark editor screenshots (and the video editor and canvas preferences screenshots) are
+  written to `docs/screenshots/`; the dark-mode checks also assert that the capture's fixture colours
+  (yellow band, magenta body) survive in the editor and that the stroke palette exposes true
+  black/white swatches with no dark theme filter applied to them;
+- **Canvas preferences** opens from the menu, offers three themes and the background swatches, stores
+  the selection locally, and a fresh editor tab opens with the saved theme applied.
 
 Artifacts: `test-results/e2e-report.json`, `test-results/export-*.png`, `docs/screenshots/*.png`.
 
@@ -558,11 +600,12 @@ renderer crashed. SnapDraw now requests tab audio with explicit `chromeMediaSour
 the extension from `chrome://extensions` with the latest `dist/` and it stops happening.
 
 **"Chrome couldn't start the screen recording."**
-**Whole screen** uses Chrome's screen/window picker from the recorder window. Click **Start sharing**,
-answer the picker (try a single window if the entire screen fails), and keep the recorder window open
-until you press **Stop and open editor**. Remote-desktop/VM sessions and some managed Chrome profiles
-block screen sharing entirely; **This tab** still works there. The recorder window shows the reason in
-its error area.
+**Whole screen** uses Chrome's screen/window picker from the recorder window; it opens automatically
+when you choose **Whole screen**. Answer the picker (try a single window if the entire screen fails), and
+keep the recorder window open until you press **Stop and open editor**. Cancelling the picker closes
+the recorder window without starting anything. Remote-desktop/VM sessions and some managed Chrome
+profiles block screen sharing entirely; **This tab** still works there. The recorder window shows the
+reason in its error area.
 
 **The red REC badge stays on — how do I stop?**
 - **This tab:** click the SnapDraw icon; the popup shows the live timer with **Stop and open editor**
@@ -608,8 +651,8 @@ the capture as an SVG image — Excalidraw exempts SVG images from that counter-
 scene without the dark canvas filter. It also removes Excalidraw's dark-theme filter from the colour
 swatches, so the palette shows true black/white (and every other colour) instead of the inverted
 versions. The editor therefore shows the capture's true colours and the exported PNG matches it; only
-SnapDraw's chrome (and Excalidraw's UI) follow the dark theme. The PNG always uses a white background
-and the original annotation colours.
+SnapDraw's chrome (and Excalidraw's UI) follow the dark theme. The PNG uses white by default (or the
+solid canvas background from **Canvas preferences**) and the original annotation colours.
 
 **Screenshots of very large displays fail.**
 Captures above 8192 px per side are rejected with a friendly error (Chrome's canvas limits). Capture a
